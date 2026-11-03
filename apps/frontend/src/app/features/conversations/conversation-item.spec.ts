@@ -77,6 +77,73 @@ describe('conversation-item helpers', () => {
     }
   });
 
+  it('turnSummaryItem reads the turn tokens and the tokens of each Gemini segment', () => {
+    const data = JSON.stringify({
+      turnId: 't2',
+      totalMs: 2100,
+      tokens: {
+        calls: 2,
+        unreportedCalls: 0,
+        promptTokens: 6200,
+        outputTokens: 45,
+        cachedTokens: 3000,
+        thoughtsTokens: 5,
+        totalTokens: 6250,
+        cachedPercent: 48,
+      },
+      segments: [
+        {
+          type: 'gemini',
+          ms: 800,
+          tokens: { promptTokens: 3000, outputTokens: 15, cachedTokens: 0, thoughtsTokens: 0 },
+        },
+        { type: 'tool', name: 'kb_search', ms: 100 },
+        {
+          type: 'gemini',
+          ms: 900,
+          tokens: { promptTokens: 3200, outputTokens: 30, cachedTokens: 3000, thoughtsTokens: 5 },
+        },
+      ],
+    });
+    const item = turnSummaryItem(event(20, 'backend_completed', '2026-01-01T00:00:04Z', data));
+    expect(item?.kind).toBe('turn-summary');
+    if (item?.kind !== 'turn-summary') return;
+
+    expect(item.data.tokens).toEqual({
+      calls: 2,
+      unreportedCalls: 0,
+      promptTokens: 6200,
+      outputTokens: 45,
+      cachedTokens: 3000,
+      thoughtsTokens: 5,
+      totalTokens: 6250,
+      cachedPercent: 48,
+    });
+    expect(item.data.segments[0].tokens?.promptTokens).toBe(3000);
+    expect(item.data.segments[1].tokens).toBeNull();
+    expect(item.data.segments[2].tokens?.cachedTokens).toBe(3000);
+  });
+
+  it('turnSummaryItem tolerates turns recorded before tokens were reported', () => {
+    const data = JSON.stringify({ segments: [{ type: 'gemini', ms: 400 }] });
+    const item = turnSummaryItem(event(21, 'backend_completed', '2026-01-01T00:00:05Z', data));
+    expect(item?.kind).toBe('turn-summary');
+    if (item?.kind !== 'turn-summary') return;
+    expect(item.data.tokens).toBeNull();
+    expect(item.data.segments[0].tokens).toBeNull();
+  });
+
+  it('turnSummaryItem treats null tokens (Gemini sent no usageMetadata) as not reported', () => {
+    const data = JSON.stringify({
+      tokens: { calls: 1, unreportedCalls: 1, promptTokens: 0, outputTokens: 0, cachedTokens: 0, thoughtsTokens: 0, totalTokens: 0, cachedPercent: 0 },
+      segments: [{ type: 'gemini', ms: 400, tokens: null }],
+    });
+    const item = turnSummaryItem(event(22, 'backend_completed', '2026-01-01T00:00:06Z', data));
+    if (item?.kind !== 'turn-summary') throw new Error('expected a turn summary');
+    expect(item.data.segments[0].tokens).toBeNull();
+    expect(item.data.tokens?.unreportedCalls).toBe(1);
+  });
+
   it('turnMetricsItem parses turn_completed pipeline', () => {
     const data = JSON.stringify({ eouMs: 10, sttMs: 20, llmMs: 300, ttsMs: 40, llmTtftMs: 120 });
     const item = turnMetricsItem(event(4, 'turn_completed', '2026-01-01T00:00:03Z', data));

@@ -22,6 +22,8 @@ public class TelemetryService : ITelemetryService
         "llm_error",
         "llm_started",
         "llm_first_token",
+        // Tokens Gemini reported for one call (prompt, cached, output, thoughts).
+        "llm_usage",
         "barge_in",
         "network_degraded",
         "network_recovered",

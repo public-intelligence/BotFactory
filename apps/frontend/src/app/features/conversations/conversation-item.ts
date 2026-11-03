@@ -15,12 +15,34 @@ export interface ToolInvocationData {
   items: ToolDisplayItem[];
 }
 
+/**
+ * Tokens Gemini reported (`usageMetadata`). `promptTokens` already includes the
+ * cached part, so the cache share is `cachedTokens / promptTokens`.
+ */
+export interface TokenCounts {
+  promptTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  thoughtsTokens: number;
+}
+
+/** The tokens of a whole turn: the sum over every Gemini call it made. */
+export interface TurnTokens extends TokenCounts {
+  calls: number;
+  /** Calls for which Gemini sent no usageMetadata (their tokens are not in the sums). */
+  unreportedCalls: number;
+  totalTokens: number;
+  cachedPercent: number;
+}
+
 /** One span in a turn's backend waterfall — a Gemini inference or a tool call. */
 export interface TurnSegment {
   type: 'gemini' | 'tool';
   name?: string;
   ms: number;
   ttftMs?: number | null;
+  /** Gemini spans only; null when Gemini reported no usage for the call. */
+  tokens?: TokenCounts | null;
 }
 
 /** Parsed `turn_completed` event: the per-turn backend latency breakdown. */
@@ -32,6 +54,8 @@ export interface TurnSummaryData {
   outcome: string | null;
   toolCount: number | null;
   charCount: number | null;
+  /** Null for turns recorded before token reporting existed. */
+  tokens: TurnTokens | null;
   segments: TurnSegment[];
 }
 
@@ -103,10 +127,39 @@ export function toolInvocationItem(e: TelemetryEventResponse): ConversationItem 
   }
 }
 
+const asCount = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/** Reads the four Gemini counts from a payload; null when it carries none. */
+function readTokenCounts(raw: unknown): TokenCounts | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r['promptTokens'] !== 'number') return null;
+  return {
+    promptTokens: asCount(r['promptTokens']),
+    outputTokens: asCount(r['outputTokens']),
+    cachedTokens: asCount(r['cachedTokens']),
+    thoughtsTokens: asCount(r['thoughtsTokens']),
+  };
+}
+
+function readTurnTokens(raw: unknown): TurnTokens | null {
+  const counts = readTokenCounts(raw);
+  if (!counts) return null;
+  const r = raw as Record<string, unknown>;
+  return {
+    ...counts,
+    calls: asCount(r['calls']),
+    unreportedCalls: asCount(r['unreportedCalls']),
+    totalTokens: asCount(r['totalTokens']),
+    cachedPercent: asCount(r['cachedPercent']),
+  };
+}
+
 /**
  * Build a turn-summary waterfall item from a `backend_completed` event. The
- * backend ships the full per-turn breakdown (Gemini spans + tool calls) in the
- * event's `data` blob. Returns null for any other event.
+ * backend ships the full per-turn breakdown (Gemini spans + tool calls, and the
+ * tokens Gemini reported) in the event's `data` blob. Returns null for any other
+ * event.
  */
 export function turnSummaryItem(e: TelemetryEventResponse): ConversationItem | null {
   if (e.eventName !== 'backend_completed' || !e.data) return null;
@@ -118,7 +171,14 @@ export function turnSummaryItem(e: TelemetryEventResponse): ConversationItem | n
       outcome?: string | null;
       toolCount?: number | null;
       charCount?: number | null;
-      segments?: Array<{ type?: string; name?: string; ms?: number; ttftMs?: number | null }>;
+      tokens?: unknown;
+      segments?: Array<{
+        type?: string;
+        name?: string;
+        ms?: number;
+        ttftMs?: number | null;
+        tokens?: unknown;
+      }>;
     };
     const segments: TurnSegment[] = (parsed.segments ?? [])
       .filter((s) => s.type === 'gemini' || s.type === 'tool')
@@ -127,6 +187,7 @@ export function turnSummaryItem(e: TelemetryEventResponse): ConversationItem | n
         name: s.name,
         ms: s.ms ?? 0,
         ttftMs: s.ttftMs ?? null,
+        tokens: readTokenCounts(s.tokens),
       }));
     return {
       kind: 'turn-summary',
@@ -139,6 +200,7 @@ export function turnSummaryItem(e: TelemetryEventResponse): ConversationItem | n
         outcome: parsed.outcome ?? null,
         toolCount: parsed.toolCount ?? null,
         charCount: parsed.charCount ?? null,
+        tokens: readTurnTokens(parsed.tokens),
         segments,
       },
     };
