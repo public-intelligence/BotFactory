@@ -349,6 +349,90 @@ public class GeminiChatServiceTests
     }
 
     [Fact]
+    public void ParseStreamChunkEvents_UsageMetadata_IsReadWithAllFourCounts()
+    {
+        var json = """{"candidates":[{"content":{"parts":[{"text":"a"}]}}],"usageMetadata":{"promptTokenCount":1200,"candidatesTokenCount":20,"totalTokenCount":1230,"cachedContentTokenCount":1000,"thoughtsTokenCount":10}}""";
+        using var doc = JsonDocument.Parse(json);
+        var list = GeminiChatService.ParseStreamChunkEvents(doc.RootElement).ToList();
+
+        // Usage comes first, before the parts: the turn stops reading at a function
+        // call and must already have it by then.
+        Assert.Equal(2, list.Count);
+        var usage = Assert.IsType<GeminiUsage>(list[0]);
+        Assert.Equal(1200, usage.PromptTokens);
+        Assert.Equal(20, usage.OutputTokens);
+        Assert.Equal(1000, usage.CachedTokens);
+        Assert.Equal(10, usage.ThoughtsTokens);
+        Assert.Equal(1230, usage.TotalTokens);
+        Assert.Equal(83, usage.CachedPercent);
+        Assert.IsType<GeminiTextDelta>(list[1]);
+    }
+
+    [Fact]
+    public void ParseStreamChunkEvents_UsageMetadata_MissingCountsReadAsZero()
+    {
+        // Gemini omits a count when it is zero: no cache hit, thinking off.
+        var json = """{"candidates":[{"content":{"parts":[{"text":"a"}]}}],"usageMetadata":{"promptTokenCount":500,"candidatesTokenCount":7,"totalTokenCount":507}}""";
+        using var doc = JsonDocument.Parse(json);
+        var usage = Assert.IsType<GeminiUsage>(GeminiChatService.ParseStreamChunkEvents(doc.RootElement).First());
+
+        Assert.Equal(500, usage.PromptTokens);
+        Assert.Equal(0, usage.CachedTokens);
+        Assert.Equal(0, usage.ThoughtsTokens);
+        Assert.Equal(0, usage.CachedPercent);
+        Assert.Equal("in=500 cached=0 (0%) out=7 thoughts=0 total=507", usage.Describe());
+    }
+
+    [Fact]
+    public void ParseStreamChunkEvents_FinalChunkWithOnlyUsage_StillYieldsUsage()
+    {
+        var json = """{"usageMetadata":{"promptTokenCount":900,"candidatesTokenCount":12,"totalTokenCount":912}}""";
+        using var doc = JsonDocument.Parse(json);
+        var list = GeminiChatService.ParseStreamChunkEvents(doc.RootElement).ToList();
+
+        var usage = Assert.IsType<GeminiUsage>(Assert.Single(list));
+        Assert.Equal(900, usage.PromptTokens);
+    }
+
+    [Fact]
+    public void ParseStreamChunkEvents_NoUsageMetadata_YieldsNoUsage()
+    {
+        var json = """{"candidates":[{"content":{"parts":[{"text":"a"}]}}]}""";
+        using var doc = JsonDocument.Parse(json);
+        var list = GeminiChatService.ParseStreamChunkEvents(doc.RootElement).ToList();
+
+        Assert.DoesNotContain(list, e => e is GeminiUsage);
+    }
+
+    [Fact]
+    public async Task StreamAsync_UsageMetadata_ReachesTheConsumerOnEveryChunk()
+    {
+        var sse =
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"a\"}]}}],\"usageMetadata\":{\"promptTokenCount\":100,\"candidatesTokenCount\":1,\"totalTokenCount\":101}}\n\n" +
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"b\"}]}}],\"usageMetadata\":{\"promptTokenCount\":100,\"candidatesTokenCount\":5,\"totalTokenCount\":105,\"cachedContentTokenCount\":80}}\n\n";
+        var handler = new CapturingHandler
+        {
+            Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(sse, Encoding.UTF8, "text/event-stream"),
+            },
+        };
+
+        var svc = CreateService(handler);
+        var usages = new List<GeminiUsage>();
+        await foreach (var ev in svc.StreamAsync("s", [], [], "u", CancellationToken.None))
+        {
+            if (ev is GeminiUsage u)
+                usages.Add(u);
+        }
+
+        // Running counts: the last event is the one that describes the call.
+        Assert.Equal(2, usages.Count);
+        Assert.Equal(5, usages[^1].OutputTokens);
+        Assert.Equal(80, usages[^1].CachedTokens);
+    }
+
+    [Fact]
     public async Task StreamAsync_NonSuccess_Throws()
     {
         var handler = new CapturingHandler

@@ -15,6 +15,7 @@ import {
   type TurnMetricsData,
   type TurnPipelineStage,
   type TurnSegment,
+  type TokenCounts,
   type TurnSummaryData,
 } from './conversation-item';
 import { TooltipFlipDirective } from './tooltip-flip.directive';
@@ -240,6 +241,9 @@ const ERROR_EVENTS = new Set([
               <span class="rounded px-1.5 py-0.5 text-[10px] font-medium" [class]="outcomeBadge(item.data.outcome)">
                 {{ item.data.outcome ?? 'n/a' }}
               </span>
+              @if (item.data.tokens; as tk) {
+                <span class="min-w-0 truncate font-mono">· {{ tokensLabel(tk) }}</span>
+              }
               <div class="group/info relative">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
                      class="h-3.5 w-3.5 cursor-default"
@@ -534,17 +538,42 @@ export class ConversationFeedComponent {
     if (data.ttftMs != null) lines.push(`Primer token: ${data.ttftMs}ms`);
     if (data.outcome) lines.push(`Resultado: ${data.outcome}`);
     if (data.toolCount) lines.push(`Herramientas usadas: ${data.toolCount}`);
+    if (data.tokens) {
+      lines.push(`Tokens: ${this.tokensLabel(data.tokens)}`);
+      if (data.tokens.unreportedCalls > 0) {
+        lines.push(
+          `Gemini no informó los tokens de ${data.tokens.unreportedCalls} de ${data.tokens.calls} llamadas`,
+        );
+      }
+    }
     for (const seg of data.segments) {
       const what =
         seg.type === 'tool' ? `herramienta ${seg.name ?? ''}`.trim() : 'inferencia Gemini';
-      lines.push(`${seg.ms}ms — ${what}`);
+      const tokens = seg.tokens ? ` · ${this.tokensLabel(seg.tokens)}` : '';
+      lines.push(`${seg.ms}ms — ${what}${tokens}`);
     }
     return lines.join('\n');
   }
 
+  /**
+   * Tokens of one Gemini call or of a whole turn, e.g.
+   * `entrada 1200 (83 % caché) · salida 20`. The cache share is of the prompt
+   * (`promptTokens` already includes the cached part). Thoughts only when present.
+   */
+  tokensLabel(t: TokenCounts): string {
+    const pct = t.promptTokens > 0 ? Math.round((100 * t.cachedTokens) / t.promptTokens) : 0;
+    const parts = [
+      `entrada ${t.promptTokens} (${pct} % caché)`,
+      `salida ${t.outputTokens}`,
+    ];
+    if (t.thoughtsTokens > 0) parts.push(`razonamiento ${t.thoughtsTokens}`);
+    return parts.join(' · ');
+  }
+
   segLabel(seg: TurnSegment): string {
     const name = seg.type === 'tool' ? (seg.name ?? 'tool') : 'gemini';
-    return `${name} ${seg.ms}ms`;
+    const tokens = seg.tokens ? ` · ${this.tokensLabel(seg.tokens)}` : '';
+    return `${name} ${seg.ms}ms${tokens}`;
   }
 
   // Width is scaled against the turn total so the bar's empty tail reflects

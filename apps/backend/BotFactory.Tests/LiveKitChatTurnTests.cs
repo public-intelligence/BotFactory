@@ -550,5 +550,180 @@ public class LiveKitChatTurnTests
             .FirstAsync();
 
         Assert.Contains("Gemini", llmError.Summary!, StringComparison.Ordinal);
+
+        // The call failed before Gemini counted anything: llm_error covers it, and an
+        // llm_usage row with no numbers would only be noise.
+        Assert.Empty(await TelemetryOfAsync(app, convId, "llm_usage"));
+    }
+
+    private static async Task<string> PostTurnAsync(WebApplicationFactory<Program> app, int convId, string text)
+    {
+        var client = app.CreateClient();
+        // /livekit/* is gated by the agent shared secret (appsettings.Development.json).
+        client.DefaultRequestHeaders.Add("X-Agent-Secret", "dev-agent-callback-secret");
+        var payload = JsonSerializer.Serialize(new { conversationId = convId, text, turnId = Guid.NewGuid() });
+        var response = await client.PostAsync(
+            "/livekit/chat/turn",
+            new StringContent(payload, Encoding.UTF8, "application/json"));
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    private static async Task<List<TelemetryEvent>> TelemetryOfAsync(
+        WebApplicationFactory<Program> app, int convId, string eventName)
+    {
+        using var scope = app.Services.CreateScope();
+        var vdb = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        return await vdb.TelemetryEvents
+            .IgnoreQueryFilters()
+            .Where(e => e.ConversationId == convId && e.EventName == eventName)
+            .OrderBy(e => e.Id)
+            .ToListAsync();
+    }
+
+    [Fact]
+    public async Task ChatTurn_ReportsGeminiUsage_LastChunkWins_AndFeedsTurnSummary()
+    {
+        // Gemini repeats usageMetadata on every chunk with running counts; only the
+        // last one describes the call.
+        var handler = new SseQueueHandler();
+        handler.EnqueueStream(
+            """
+            data: {"candidates":[{"content":{"parts":[{"text":"Hola"}]}}],"usageMetadata":{"promptTokenCount":1200,"candidatesTokenCount":2,"totalTokenCount":1202,"cachedContentTokenCount":1000}}
+
+            data: {"candidates":[{"content":{"parts":[{"text":" mundo"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1200,"candidatesTokenCount":20,"totalTokenCount":1220,"cachedContentTokenCount":1000}}
+
+            """);
+
+        using var app = WithTurnGemini(_factory, handler);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContextSetter>();
+        var convId = await SeedConversationAsync(db, tenant);
+
+        await PostTurnAsync(app, convId, "Hola");
+
+        var usage = Assert.Single(await TelemetryOfAsync(app, convId, "llm_usage"));
+        using (var d = JsonDocument.Parse(usage.Data!))
+        {
+            var r = d.RootElement;
+            Assert.True(r.GetProperty("reported").GetBoolean());
+            Assert.True(r.GetProperty("complete").GetBoolean());
+            Assert.Equal(1, r.GetProperty("call").GetInt32());
+            Assert.Equal(1200, r.GetProperty("promptTokens").GetInt32());
+            Assert.Equal(1000, r.GetProperty("cachedTokens").GetInt32());
+            Assert.Equal(20, r.GetProperty("outputTokens").GetInt32());
+            Assert.Equal(0, r.GetProperty("thoughtsTokens").GetInt32());
+            Assert.Equal(1220, r.GetProperty("totalTokens").GetInt32());
+            Assert.Equal(83, r.GetProperty("cachedPercent").GetInt32());
+        }
+        Assert.Equal("in=1200 cached=1000 (83%) out=20 thoughts=0 total=1220", usage.Summary);
+
+        var completed = Assert.Single(await TelemetryOfAsync(app, convId, "backend_completed"));
+        using var turn = JsonDocument.Parse(completed.Data!);
+        var tokens = turn.RootElement.GetProperty("tokens");
+        Assert.Equal(1, tokens.GetProperty("calls").GetInt32());
+        Assert.Equal(0, tokens.GetProperty("unreportedCalls").GetInt32());
+        Assert.Equal(1200, tokens.GetProperty("promptTokens").GetInt32());
+        Assert.Equal(1000, tokens.GetProperty("cachedTokens").GetInt32());
+        Assert.Equal(20, tokens.GetProperty("outputTokens").GetInt32());
+
+        var gemini = turn.RootElement.GetProperty("segments")[0];
+        Assert.Equal("gemini", gemini.GetProperty("type").GetString());
+        Assert.Equal(1200, gemini.GetProperty("tokens").GetProperty("promptTokens").GetInt32());
+        Assert.Contains("in=1200 cached=1000 out=20", completed.Summary!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChatTurn_FunctionCallThenText_RecordsUsageOfEveryGeminiCall_AndSumsTheTurn()
+    {
+        // The turn stops reading a stream as soon as it sees a function call, so the
+        // usage of that call must already have been delivered by then.
+        var handler = new SseQueueHandler();
+        handler.EnqueueStream(
+            """
+            data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"kb_search","args":{"query":"q"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3000,"candidatesTokenCount":15,"totalTokenCount":3015}}
+
+            """);
+        handler.EnqueueStream(
+            """
+            data: {"candidates":[{"content":{"parts":[{"text":"From KB"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3200,"candidatesTokenCount":30,"totalTokenCount":3230,"cachedContentTokenCount":3000,"thoughtsTokenCount":5}}
+
+            """);
+
+        using var app = WithTurnGemini(_factory, handler);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContextSetter>();
+        var convId = await SeedConversationAsync(db, tenant);
+
+        await PostTurnAsync(app, convId, "Search please");
+
+        var usage = await TelemetryOfAsync(app, convId, "llm_usage");
+        Assert.Equal(2, usage.Count);
+        using (var first = JsonDocument.Parse(usage[0].Data!))
+        {
+            Assert.Equal(1, first.RootElement.GetProperty("call").GetInt32());
+            Assert.Equal(3000, first.RootElement.GetProperty("promptTokens").GetInt32());
+            Assert.Equal(0, first.RootElement.GetProperty("cachedTokens").GetInt32());
+        }
+        using (var second = JsonDocument.Parse(usage[1].Data!))
+        {
+            Assert.Equal(2, second.RootElement.GetProperty("call").GetInt32());
+            Assert.Equal(3200, second.RootElement.GetProperty("promptTokens").GetInt32());
+            Assert.Equal(3000, second.RootElement.GetProperty("cachedTokens").GetInt32());
+            Assert.Equal(5, second.RootElement.GetProperty("thoughtsTokens").GetInt32());
+        }
+
+        var completed = Assert.Single(await TelemetryOfAsync(app, convId, "backend_completed"));
+        using var turn = JsonDocument.Parse(completed.Data!);
+        var tokens = turn.RootElement.GetProperty("tokens");
+        Assert.Equal(2, tokens.GetProperty("calls").GetInt32());
+        Assert.Equal(6200, tokens.GetProperty("promptTokens").GetInt32());
+        Assert.Equal(3000, tokens.GetProperty("cachedTokens").GetInt32());
+        Assert.Equal(45, tokens.GetProperty("outputTokens").GetInt32());
+        Assert.Equal(5, tokens.GetProperty("thoughtsTokens").GetInt32());
+        Assert.Equal(6245, tokens.GetProperty("totalTokens").GetInt32());
+        Assert.Equal(48, tokens.GetProperty("cachedPercent").GetInt32());
+
+        // Tokens ride on the Gemini segments only, not on the tool segment.
+        var segments = turn.RootElement.GetProperty("segments").EnumerateArray().ToList();
+        Assert.Equal(3, segments.Count);
+        Assert.Equal(3000, segments[0].GetProperty("tokens").GetProperty("promptTokens").GetInt32());
+        Assert.Equal("tool", segments[1].GetProperty("type").GetString());
+        Assert.Equal(3200, segments[2].GetProperty("tokens").GetProperty("promptTokens").GetInt32());
+    }
+
+    [Fact]
+    public async Task ChatTurn_GeminiOmitsUsageMetadata_IsRecordedAsUnreported_AndTurnStillAnswers()
+    {
+        var handler = new SseQueueHandler();
+        handler.EnqueueStream(
+            """
+            data: {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}
+
+            """);
+
+        using var app = WithTurnGemini(_factory, handler);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContextSetter>();
+        var convId = await SeedConversationAsync(db, tenant);
+
+        var sse = await PostTurnAsync(app, convId, "Hi");
+        Assert.Contains("data: Hello", sse, StringComparison.Ordinal);
+
+        var usage = Assert.Single(await TelemetryOfAsync(app, convId, "llm_usage"));
+        using (var d = JsonDocument.Parse(usage.Data!))
+        {
+            Assert.False(d.RootElement.GetProperty("reported").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, d.RootElement.GetProperty("promptTokens").ValueKind);
+        }
+
+        var completed = Assert.Single(await TelemetryOfAsync(app, convId, "backend_completed"));
+        using var turn = JsonDocument.Parse(completed.Data!);
+        Assert.Equal("ok", turn.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal(1, turn.RootElement.GetProperty("tokens").GetProperty("unreportedCalls").GetInt32());
+        Assert.Equal(JsonValueKind.Null, turn.RootElement.GetProperty("segments")[0].GetProperty("tokens").ValueKind);
     }
 }

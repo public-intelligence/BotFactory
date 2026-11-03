@@ -102,6 +102,7 @@ public class TelemetryServiceTests
         Assert.Contains("conversation_started", TelemetryService.FeedAllowlist);
         Assert.Contains("conversation_ended", TelemetryService.FeedAllowlist);
         Assert.Contains("llm_first_token", TelemetryService.FeedAllowlist);
+        Assert.Contains("llm_usage", TelemetryService.FeedAllowlist);
         Assert.Contains("stt_failed", TelemetryService.FeedAllowlist);
         Assert.Contains("barge_in", TelemetryService.FeedAllowlist);
         // Session lifecycle + per-turn summary events surface in the feed.

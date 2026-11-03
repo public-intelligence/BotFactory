@@ -18,6 +18,28 @@ public sealed record GeminiTextDelta(string Text) : GeminiStreamEvent;
 public sealed record GeminiFunctionCall(string Name, JsonElement Args) : GeminiStreamEvent;
 
 /// <summary>
+/// Token counts from Gemini's <c>usageMetadata</c> for one generateContent call.
+/// Gemini omits a count when it is zero (e.g. no <c>cachedContentTokenCount</c> on a
+/// cache miss, no <c>thoughtsTokenCount</c> with thinking off), so a missing field
+/// reads as 0. <see cref="PromptTokens"/> already includes <see cref="CachedTokens"/>.
+/// <see cref="TotalTokens"/> is what Gemini reports (prompt + output + thoughts).
+/// </summary>
+public sealed record GeminiUsage(
+    int PromptTokens,
+    int OutputTokens,
+    int CachedTokens,
+    int ThoughtsTokens,
+    int TotalTokens) : GeminiStreamEvent
+{
+    /// <summary>Share of the prompt served from Gemini's cache, 0-100.</summary>
+    public int CachedPercent => PromptTokens > 0 ? (int)Math.Round(100.0 * CachedTokens / PromptTokens) : 0;
+
+    /// <summary>One-line form for the telemetry summary, e.g. <c>in=12000 cached=11500 (96%) out=40 thoughts=0 total=12040</c>.</summary>
+    public string Describe() =>
+        $"in={PromptTokens} cached={CachedTokens} ({CachedPercent}%) out={OutputTokens} thoughts={ThoughtsTokens} total={TotalTokens}";
+}
+
+/// <summary>
 /// Extra Gemini API <c>contents</c> turns (e.g. model functionCall + user functionResponse) within a single voice turn.
 /// </summary>
 public sealed record GeminiExtraContent(string Role, object[] Parts);
@@ -203,6 +225,20 @@ public class GeminiChatService
 
     public static IEnumerable<GeminiStreamEvent> ParseStreamChunkEvents(JsonElement root)
     {
+        // Usage first, before any part: the turn stops reading the stream as soon as
+        // it sees a function call, so a usage event placed after the parts of that
+        // chunk would never be delivered. Every chunk repeats usageMetadata with
+        // running counts; the consumer keeps the last one it saw.
+        if (root.TryGetProperty("usageMetadata", out var usageEl) && usageEl.ValueKind == JsonValueKind.Object)
+        {
+            yield return new GeminiUsage(
+                ReadCount(usageEl, "promptTokenCount"),
+                ReadCount(usageEl, "candidatesTokenCount"),
+                ReadCount(usageEl, "cachedContentTokenCount"),
+                ReadCount(usageEl, "thoughtsTokenCount"),
+                ReadCount(usageEl, "totalTokenCount"));
+        }
+
         if (!root.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
             yield break;
 
@@ -238,4 +274,9 @@ public class GeminiChatService
             }
         }
     }
+
+    private static int ReadCount(JsonElement obj, string name) =>
+        obj.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var n)
+            ? Math.Max(0, n)
+            : 0;
 }

@@ -123,6 +123,86 @@ public sealed class ChatTurnService : IChatTurnService
         ChatTurnProviderError? providerError = null;
         var wasCancelled = false;
 
+        // Token accounting. Gemini reports usageMetadata on every chunk of a call with
+        // running counts, so the last report of the call wins. `geminiCallOpen` marks a
+        // call whose usage has not been recorded yet: the finally block uses it to
+        // still record a call cut short by barge-in or an error, since Gemini bills
+        // the tokens it had already counted.
+        GeminiUsage? passUsage = null;
+        var geminiCallOpen = false;
+        var geminiCalls = 0;
+        var usageTotals = new TurnUsageTotals();
+
+        // Records the call in flight: one `llm_usage` telemetry event, one log line
+        // (it shows in Registros) and the turn totals. Best-effort on purpose — an
+        // observability failure must never turn a good answer into the fallback.
+        async Task<GeminiUsage?> RecordGeminiCallAsync(bool completed, int? ms)
+        {
+            if (!geminiCallOpen)
+                return null;
+            geminiCallOpen = false;
+
+            var usage = passUsage;
+            passUsage = null;
+
+            // A call that failed before Gemini counted anything has nothing to record;
+            // llm_error already covers it.
+            if (!completed && usage is null)
+                return null;
+
+            geminiCalls++;
+            usageTotals.Add(usage);
+
+            try
+            {
+                if (usage is null)
+                {
+                    _logger.LogWarning(
+                        "Gemini reported no usageMetadata conversation={ConversationId} turn={TurnId} call={Call}",
+                        conv.Id, request.TurnId, geminiCalls);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Gemini usage conversation={ConversationId} turn={TurnId} call={Call} prompt={Prompt} cached={Cached} output={Output} thoughts={Thoughts} total={Total}",
+                        conv.Id, request.TurnId, geminiCalls,
+                        usage.PromptTokens, usage.CachedTokens, usage.OutputTokens, usage.ThoughtsTokens, usage.TotalTokens);
+                }
+
+                await _telemetry.EmitAsync(new TelemetryEmit(
+                    "llm_usage",
+                    EventSource.Backend,
+                    BotId: conv.BotId,
+                    ConversationId: conv.Id,
+                    UserId: conv.UserId,
+                    TurnId: request.TurnId,
+                    Stage: "llm",
+                    LatencyMs: ms,
+                    Provider: "gemini",
+                    Summary: usage is null ? "usageMetadata not reported" : usage.Describe(),
+                    Data: JsonSerializer.SerializeToElement(new
+                    {
+                        model = _chatOptions.Value.ChatModel,
+                        call = geminiCalls,
+                        reported = usage is not null,
+                        complete = completed,
+                        promptTokens = usage?.PromptTokens,
+                        outputTokens = usage?.OutputTokens,
+                        cachedTokens = usage?.CachedTokens,
+                        thoughtsTokens = usage?.ThoughtsTokens,
+                        totalTokens = usage?.TotalTokens,
+                        cachedPercent = usage?.CachedPercent,
+                    })),
+                    CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not record Gemini usage for conversation {ConversationId}", conv.Id);
+            }
+
+            return usage;
+        }
+
         await _telemetry.EmitAsync(new TelemetryEmit(
             "llm_started",
             EventSource.Backend,
@@ -144,6 +224,8 @@ public sealed class ChatTurnService : IChatTurnService
                 GeminiFunctionCall? pendingCall = null;
                 var geminiSw = Stopwatch.StartNew();
                 int? geminiFirstDeltaMs = null;
+                passUsage = null;
+                geminiCallOpen = true;
 
                 await foreach (var ev in _geminiChat.StreamAsync(
                                    systemInstruction,
@@ -187,6 +269,10 @@ public sealed class ChatTurnService : IChatTurnService
                         case GeminiFunctionCall fc:
                             pendingCall = fc;
                             break;
+
+                        case GeminiUsage u:
+                            passUsage = u;
+                            break;
                     }
 
                     if (pendingCall is not null)
@@ -194,11 +280,23 @@ public sealed class ChatTurnService : IChatTurnService
                 }
 
                 geminiSw.Stop();
+                var callUsage = await RecordGeminiCallAsync(
+                    completed: true,
+                    ms: (int)geminiSw.ElapsedMilliseconds);
                 segments.Add(new
                 {
                     type = "gemini",
                     ms = (int)geminiSw.ElapsedMilliseconds,
                     ttftMs = geminiFirstDeltaMs,
+                    tokens = callUsage is null
+                        ? null
+                        : new
+                        {
+                            promptTokens = callUsage.PromptTokens,
+                            outputTokens = callUsage.OutputTokens,
+                            cachedTokens = callUsage.CachedTokens,
+                            thoughtsTokens = callUsage.ThoughtsTokens,
+                        },
                 });
 
                 if (pendingCall is null)
@@ -452,6 +550,10 @@ public sealed class ChatTurnService : IChatTurnService
             sw.Stop();
             var totalMs = (int)sw.ElapsedMilliseconds;
 
+            // No-op unless a Gemini call was cut short (barge-in, error) after Gemini
+            // had already counted some tokens.
+            await RecordGeminiCallAsync(completed: false, ms: null);
+
             if (!wasCancelled)
             {
                 var assistantMessage = new Message
@@ -474,6 +576,7 @@ public sealed class ChatTurnService : IChatTurnService
                     outcome = MapTurnOutcome(provider),
                     toolCount = toolInvokes,
                     charCount = buffer.Length,
+                    tokens = usageTotals.ToData(),
                     segments,
                 });
 
@@ -487,7 +590,7 @@ public sealed class ChatTurnService : IChatTurnService
                     Stage: "llm",
                     LatencyMs: totalMs,
                     Provider: provider,
-                    Summary: $"chars={buffer.Length} tools={toolInvokes} ttft={ttftMs}ms",
+                    Summary: $"chars={buffer.Length} tools={toolInvokes} ttft={ttftMs}ms in={usageTotals.PromptTokens} cached={usageTotals.CachedTokens} out={usageTotals.OutputTokens}",
                     Data: turnData),
                     CancellationToken.None);
             }
@@ -516,6 +619,48 @@ public sealed class ChatTurnService : IChatTurnService
             segments,
             providerError,
             wasCancelled);
+    }
+
+    /// <summary>Sum of the tokens Gemini reported across every call of one turn.</summary>
+    private sealed class TurnUsageTotals
+    {
+        public int Calls { get; private set; }
+        public int UnreportedCalls { get; private set; }
+        public int PromptTokens { get; private set; }
+        public int OutputTokens { get; private set; }
+        public int CachedTokens { get; private set; }
+        public int ThoughtsTokens { get; private set; }
+        public int TotalTokens { get; private set; }
+
+        public void Add(GeminiUsage? usage)
+        {
+            Calls++;
+            if (usage is null)
+            {
+                UnreportedCalls++;
+                return;
+            }
+
+            PromptTokens += usage.PromptTokens;
+            OutputTokens += usage.OutputTokens;
+            CachedTokens += usage.CachedTokens;
+            ThoughtsTokens += usage.ThoughtsTokens;
+            TotalTokens += usage.TotalTokens;
+        }
+
+        public object ToData() => new
+        {
+            calls = Calls,
+            unreportedCalls = UnreportedCalls,
+            promptTokens = PromptTokens,
+            outputTokens = OutputTokens,
+            cachedTokens = CachedTokens,
+            thoughtsTokens = ThoughtsTokens,
+            totalTokens = TotalTokens,
+            cachedPercent = PromptTokens > 0
+                ? (int)Math.Round(100.0 * CachedTokens / PromptTokens)
+                : 0,
+        };
     }
 
     private static string MapTurnOutcome(string provider) => provider switch
