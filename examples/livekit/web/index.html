@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LiveKit Voice Test</title>
+  <style>
+    body { font-family: system-ui; max-width: 480px; margin: 40px auto; padding: 0 20px; }
+    button { padding: 12px 24px; font-size: 16px; cursor: pointer; border-radius: 8px; border: none; }
+    #connect { background: #0066ff; color: white; }
+    #connect:disabled { background: #999; }
+    #disconnect { background: #cc0000; color: white; display: none; }
+    #status { margin-top: 16px; padding: 12px; background: #f0f0f0; border-radius: 8px; }
+    #log { margin-top: 16px; font-size: 13px; color: #666; max-height: 300px; overflow-y: auto; }
+    .log-entry { padding: 2px 0; }
+  </style>
+</head>
+<body>
+  <h1>LiveKit Voice Test</h1>
+  <p>Connects to a local LiveKit room and talks to the echo agent.</p>
+
+  <button id="connect">Connect & Start Talking</button>
+  <button id="disconnect">Disconnect</button>
+  <div id="status">Not connected</div>
+  <div id="log"></div>
+
+  <script type="module">
+    import {
+      Room,
+      RoomEvent,
+      Track,
+    } from "https://esm.sh/livekit-client@2";
+
+    const connectBtn = document.getElementById("connect");
+    const disconnectBtn = document.getElementById("disconnect");
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+
+    let room = null;
+
+    function log(msg) {
+      const entry = document.createElement("div");
+      entry.className = "log-entry";
+      entry.textContent = `${new Date().toLocaleTimeString()} — ${msg}`;
+      logEl.prepend(entry);
+    }
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    connectBtn.addEventListener("click", async () => {
+      connectBtn.disabled = true;
+      setStatus("Connecting...");
+
+      try {
+        // Fetch token from our agent's HTTP server
+        const resp = await fetch("/api/token");
+        const { token, url } = await resp.json();
+        log(`Token received, connecting to ${url}`);
+
+        room = new Room();
+
+        room.on(RoomEvent.TrackSubscribed, (track) => {
+          if (track.kind === Track.Kind.Audio) {
+            const el = track.attach();
+            document.body.appendChild(el);
+            log("Agent audio track attached — you should hear the echo");
+          }
+        });
+
+        room.on(RoomEvent.ParticipantConnected, (p) => {
+          log(`Participant joined: ${p.identity}`);
+        });
+
+        room.on(RoomEvent.ParticipantDisconnected, (p) => {
+          log(`Participant left: ${p.identity}`);
+        });
+
+        room.on(RoomEvent.Disconnected, () => {
+          setStatus("Disconnected");
+          connectBtn.disabled = false;
+          connectBtn.style.display = "";
+          disconnectBtn.style.display = "none";
+          log("Disconnected from room");
+        });
+
+        room.on(RoomEvent.DataReceived, (data) => {
+          try {
+            const msg = JSON.parse(new TextDecoder().decode(data));
+            log(`[${msg.type}] ${msg.text}`);
+          } catch {}
+        });
+
+        room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
+          const who = participant?.identity?.startsWith("agent") ? "Agent" : "You";
+          for (const seg of segments) {
+            if (seg.final) {
+              log(`[${who}] ${seg.text}`);
+            }
+          }
+        });
+
+        await room.connect(url, token);
+        await room.localParticipant.setMicrophoneEnabled(true);
+
+        setStatus("Connected — speak into your mic");
+        connectBtn.style.display = "none";
+        disconnectBtn.style.display = "";
+        log(`Connected to room: ${room.name}`);
+      } catch (err) {
+        setStatus(`Error: ${err.message}`);
+        connectBtn.disabled = false;
+        log(`Connection error: ${err.message}`);
+      }
+    });
+
+    disconnectBtn.addEventListener("click", () => {
+      if (room) {
+        room.disconnect();
+        room = null;
+      }
+    });
+  </script>
+</body>
+</html>

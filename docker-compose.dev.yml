@@ -1,0 +1,106 @@
+# Dev stack: infrastructure only (backend + frontend run on host dev servers).
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Ports: 7880 LiveKit, 7881 LiveKit TCP, 8089 agent health, 5080 kb-scraper, 30001 SQL Server, 16379 Redis
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "BotFactory@Pass123!"
+    ports:
+      - "30001:1433"
+    volumes:
+      - sqldata:/var/lib/mssql/data
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "BotFactory@Pass123!" -C -Q "SELECT 1" -b
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck
+    ports:
+      - "10000:10000"
+    volumes:
+      - azurite_data:/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"
+
+  livekit:
+    image: livekit/livekit-server:v1.10.1
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+    volumes:
+      - ./apps/agent/livekit.dev.yaml:/etc/livekit.yaml
+    command: ["--config", "/etc/livekit.yaml"]
+    depends_on:
+      - redis
+
+  agent:
+    platform: linux/amd64
+    build:
+      context: ./apps/agent
+      dockerfile: Dockerfile
+    environment:
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secretsecretsecretsecretsecretsecret
+      - BACKEND_URL=http://host.docker.internal:5000
+      - BACKEND_SHARED_SECRET=dev-agent-callback-secret
+      - AGENT_NAME=bot-factory-agent
+      - HEALTH_PORT=8089
+    ports:
+      - "8089:8089"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8089/healthz')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - livekit
+
+  kb-scraper:
+    platform: linux/amd64
+    build:
+      context: ./apps/kb-scraper
+      dockerfile: Dockerfile
+    environment:
+      - API_KEY=dev-local-key
+      - MAX_CONCURRENT_RENDERS=4
+      - DEFAULT_TIMEOUT_MS=45000
+      - ACQUIRE_TIMEOUT_MS=120000
+    ports:
+      - "5080:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://127.0.0.1:8080/health",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  sqldata:
+  azurite_data:

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot Factory — Guía de Despliegue</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#161d2e; --panel2:#1c2436; --ink:#e7ecf5; --muted:#9aa7bd;
+    --line:#28324a; --accent:#5b9dff; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+    --code:#0b1120;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{padding:44px 24px 30px;background:linear-gradient(160deg,#182238,#0f1420);border-bottom:1px solid var(--line)}
+  .wrap{max-width:940px;margin:0 auto;padding:0 24px}
+  h1{margin:0 0 8px;font-size:30px;letter-spacing:-.4px}
+  .ver{font-size:14px;vertical-align:middle;background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:3px 10px;margin-left:8px;letter-spacing:0}
+  h2{margin:44px 0 12px;font-size:22px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{margin:22px 0 8px;font-size:16px;color:#cdd8ee}
+  p,li{color:var(--ink)}
+  .lead{font-size:17px;color:#d7e0f0}
+  .sub{color:var(--muted);font-size:14px}
+  code{background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:#d7e3ff}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55}
+  pre code{background:none;border:none;padding:0;color:#cfe0ff}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:14px 0}
+  .step h3{margin-top:0}
+  .badge{display:inline-flex;align-items:center;justify-content:center;padding:2px 11px;border-radius:20px;background:var(--accent);color:#04122e;font-weight:700;font-size:12.5px;margin-right:10px;flex:none}
+  .badge.b2{background:#a371f7;color:#150a27}
+  .badge.b1{background:#e3b341;color:#241a00}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd8ee;font-weight:600}
+  .pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:12px;font-weight:600}
+  .p-ok{background:rgba(63,185,80,.15);color:var(--ok);border:1px solid rgba(63,185,80,.4)}
+  .callout{border-left:3px solid var(--accent);background:var(--panel2);padding:13px 17px;border-radius:0 10px 10px 0;margin:16px 0}
+  .callout.warn{border-left-color:var(--warn)}
+  .callout b{color:#fff}
+  .expect{color:var(--ok);font-size:13px;margin:8px 0 0}
+  .expect::before{content:"✓ Se espera: ";font-weight:700}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;padding:40px 0 60px;border-top:1px solid var(--line);margin-top:40px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0}
+  @media(max-width:760px){.grid3{grid-template-columns:1fr}}
+  .servercard{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--panel)}
+  .servercard h4{margin:0 0 6px;font-size:15px}
+  .dl{display:inline-flex;align-items:center;gap:10px;margin-top:18px;padding:13px 20px;background:var(--accent);color:#04122e;font-weight:700;font-size:15px;border-radius:10px;text-decoration:none}
+  .dl:hover{filter:brightness(1.08)}
+  .dl small{font-weight:600;color:#0a2145;opacity:.8}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Bot Factory — Guía de Despliegue <span class="ver">v1.1</span></h1>
+    <p class="lead">Bot Factory se instala en tres servidores: su base de datos, un servidor de voz y un servidor de aplicación. Todo corre en Docker excepto la base de datos. Si sabe copiar archivos y pegar comandos, puede hacerlo.</p>
+    <p class="sub">Tiempo estimado: <b>~30 minutos</b> incluyendo DNS y la preparación de SQL — la parte de Docker toma unos 5 · <span class="pill p-ok">Basado en Docker</span></p>
+    <p class="sub">¿Ya tiene una versión anterior instalada? Vaya a <a href="#upgrade" style="color:var(--accent)">Actualizar desde la v1.0</a>.</p>
+    <a class="dl" href="./bot-factory-deploy.zip" download>⬇ Descargar los archivos de despliegue &nbsp;<small>(docker-compose + plantillas .env)</small></a>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2>Los tres servidores</h2>
+<p>Configúrelos en este orden: base de datos → voz → aplicación.</p>
+<div class="grid3">
+  <div class="servercard"><h4><span class="badge b1">Servidor 1</span>Base de datos</h4><p class="sub"><b>Windows + SQL Server</b>. Ya lo tienen — solo apuntamos la aplicación hacia él.</p></div>
+  <div class="servercard"><h4><span class="badge b2">Servidor 2</span>Voz</h4><p class="sub"><b>Linux + Docker</b>, dedicado al audio en vivo. Necesita un dominio y puertos abiertos.</p></div>
+  <div class="servercard"><h4><span class="badge">Servidor 3</span>Aplicación</h4><p class="sub"><b>Linux + Docker</b> con todo lo demás: sitio web, API, agente de voz y servicios auxiliares.</p></div>
+</div>
+
+<h2>Antes de empezar</h2>
+<ul>
+  <li><b>Los archivos de despliegue</b> — descargue el zip de arriba. Trae una carpeta por servidor: <code>deploy/livekit/</code> (Servidor 2) y <code>deploy/bot_factory/</code> (Servidor 3).</li>
+  <li><b>Acceso al registro de imágenes</b> — un usuario y contraseña que le entregamos, para descargar las imágenes. No necesita cuenta en la nube.</li>
+  <li><b>Dos nombres de dominio</b>, uno para el Servidor 2 y otro para el Servidor 3, cada uno apuntando (registro DNS tipo A, <b>sin proxy</b>) a ese servidor.</li>
+  <li><b>Un certificado HTTPS y su llave</b> para cada uno de esos dominios, en formato PEM (el archivo del certificado debe incluir la cadena completa). Copiará los dos archivos en una carpeta <code>certs/</code> en cada servidor.</li>
+  <li><b>Docker</b> en los Servidores 2 y 3 — verifique con <code>docker --version</code>. Si no está instalado: <code>curl -fsSL https://get.docker.com | sudo sh</code>.</li>
+  <li><b>Puertos abiertos</b> — Servidor 2: <code>80, 443, 7881/tcp, 50000-50100/udp</code> públicos + <code>7880/tcp</code> desde el Servidor 3. Servidor 3: <code>80, 443</code> públicos; debe alcanzar el Servidor 1 (<code>1433</code>) y el Servidor 2 (<code>7880</code>).</li>
+</ul>
+
+<h2 id="s1"><span class="badge b1">1</span>Servidor 1 — Base de datos (solo preparación)</h2>
+<div class="step">
+<ol>
+  <li>Active la <b>Autenticación de SQL Server</b>.</li>
+  <li>Cree un inicio de sesión (por ejemplo <code>botfactory</code>) con una contraseña robusta. Otórguele <code>dbcreator</code>, o cree previamente una base de datos <code>BotFactory</code> vacía cuyo propietario sea ese inicio de sesión. <span class="sub">(La aplicación crea sus tablas al arrancar por primera vez.)</span></li>
+  <li>Asegúrese de que el <b>puerto 1433</b> sea alcanzable desde el Servidor 3.</li>
+</ol>
+<div class="callout warn"><b>SQL Server 2025 o superior.</b> La búsqueda usa el tipo nativo <code>vector</code>; en versiones anteriores falla la creación del esquema.</div>
+<p>Anote la dirección, el usuario y la contraseña — los va a necesitar en el Servidor 3.</p>
+</div>
+
+<h2 id="s2"><span class="badge b2">2</span>Servidor 2 — Voz (LiveKit)</h2>
+<div class="step">
+<p>Copie <code>deploy/livekit/</code> a este servidor y complete los valores en <code>.env</code>:</p>
+<pre><code>cd livekit
+cp .env.example .env
+nano .env</code></pre>
+<pre><code>LIVEKIT_DOMAIN=voice.sudominio.com           # el dominio de este servidor
+TLS_CERT=/etc/nginx/certs/fullchain.pem      # su certificado, copiado en ./certs
+TLS_KEY=/etc/nginx/certs/privkey.pem
+LIVEKIT_API_KEY=botfactory
+LIVEKIT_API_SECRET=&lt;paste output of:  openssl rand -hex 32&gt;</code></pre>
+<p>Descargue e inicie los contenedores — estas imágenes son públicas, aquí no hace falta acceso al registro:</p>
+<pre><code>docker compose -f docker-compose.livekit.yml pull
+docker compose -f docker-compose.livekit.yml up -d
+curl https://voice.sudominio.com/</code></pre>
+<p class="expect"><code>OK</code>, con un certificado HTTPS válido.</p>
+<div class="callout"><b>Guarde <code>LIVEKIT_API_KEY</code> y <code>LIVEKIT_API_SECRET</code></b> — el Servidor 3 debe usar exactamente el mismo par.</div>
+</div>
+
+<h2 id="s3"><span class="badge">3</span>Servidor 3 — Aplicación</h2>
+<div class="step">
+<h3>1 · Copiar los archivos e iniciar sesión</h3>
+<pre><code>cd bot_factory                                 # del zip
+docker login crvozimages-h3a3g5dzbkamfpd8.azurecr.io -u YOUR_USERNAME</code></pre>
+
+<h3>2 · Completar el <code>.env</code></h3>
+<p>Copie la plantilla y complete los valores que conectan los tres servidores:</p>
+<pre><code>cp .env.example .env
+nano .env</code></pre>
+<pre><code>APP_DOMAIN=app.sudominio.com                   # el dominio de este servidor
+TLS_CERT=/etc/nginx/certs/fullchain.pem        # su certificado, copiado en ./certs
+TLS_KEY=/etc/nginx/certs/privkey.pem
+ALLOWED_ORIGINS=https://app.sudominio.com
+PUBLIC_SPA_INDEX_URL=https://app.sudominio.com/index.html
+
+SQL_HOST=192.168.1.10                          # Servidor 1
+SQL_USER=botfactory
+SQL_PASSWORD=YOUR_SQL_PASSWORD
+
+LIVEKIT_HOST=192.168.1.20                       # Servidor 2 (interno, para :7880)
+LIVEKIT_PUBLIC_HOST=wss://voice.sudominio.com
+LIVEKIT_API_KEY=botfactory                      # igual que en el Servidor 2
+LIVEKIT_API_SECRET=MISMO_SECRETO_DEL_SERVIDOR2</code></pre>
+<div class="callout warn"><b>Dos reglas:</b> la clave y el secreto <code>LIVEKIT_*</code> deben ser <b>idénticos</b> a los del Servidor 2, y <code>ENCRYPTION_MASTER_KEY</code> debe generarse con <code>openssl rand -base64 32</code>. Los demás secretos de la plantilla ya vienen generados.</div>
+
+<h3>3 · Levantar todo</h3>
+<pre><code>docker compose -f docker-compose.stack.yml pull
+docker compose -f docker-compose.stack.yml up -d</code></pre>
+<p class="expect">5 contenedores en <code>Up</code>; la API crea las tablas de la base de datos al arrancar por primera vez.</p>
+</div>
+
+<h2 id="verify">Verificar que funciona</h2>
+<table>
+<tr><th>Qué</th><th>Comando y resultado correcto</th></tr>
+<tr><td>Todos los contenedores arriba</td><td><code>docker compose -f docker-compose.stack.yml ps</code><div class="expect" style="margin-top:4px">5 en <code>Up</code>; agent y kb-scraper en <code>(healthy)</code></div></td></tr>
+<tr><td>API arriba y conectada a SQL</td><td><code>docker logs bf-api 2>&amp;1 | grep -E "migration|Now listening"</code><div class="expect" style="margin-top:4px">migraciones aplicadas y luego <code>Now listening</code></div></td></tr>
+<tr><td>El agente de voz alcanzó el Servidor 2</td><td><code>docker logs bf-agent 2>&amp;1 | grep "registered worker"</code><div class="expect" style="margin-top:4px">una línea que menciona <code>bot-factory-agent</code></div></td></tr>
+<tr><td>El sitio carga por HTTPS</td><td>abra <code>https://app.sudominio.com</code><div class="expect" style="margin-top:4px">la pantalla de inicio de sesión, con certificado válido</div></td></tr>
+</table>
+<p>Inicie sesión con <b>Fake-ID</b> para confirmar que la aplicación llega a la base de datos. Listo, ya está desplegado. 🎉</p>
+
+<h2 id="trouble">Si algo falla</h2>
+<table>
+<tr><th>Síntoma</th><th>Solución</th></tr>
+<tr><td>La API se reinicia / "cannot open database"</td><td>Revise <code>SQL_HOST/USER/PASSWORD</code>, que el 1433 esté abierto desde el Servidor 3, y que el usuario pueda crear la base de datos.</td></tr>
+<tr><td>"master key must be 32 bytes"</td><td>Regenere <code>ENCRYPTION_MASTER_KEY</code> con <code>openssl rand -base64 32</code> y ejecute <code>up -d</code>.</td></tr>
+<tr><td>El agente nunca registra "registered worker"</td><td>El Servidor 3 no alcanza el 7880 del Servidor 2, o las claves <code>LIVEKIT_*</code> no coinciden. Hágalas idénticas.</td></tr>
+<tr><td>La llamada conecta pero no hay sonido</td><td>Abra <b>UDP 50000-50100</b> y <b>TCP 7881</b> hacia internet en el Servidor 2.</td></tr>
+<tr><td>No hay certificado HTTPS</td><td>Verifique que <code>TLS_CERT</code> y <code>TLS_KEY</code> apunten a archivos dentro de <code>certs/</code>, y que el certificado cubra el dominio e incluya la cadena completa. El contenedor registra en su log el modo que eligió al arrancar.</td></tr>
+<tr><td>"not authorized" al descargar imágenes</td><td>Ejecute <code>docker login</code> nuevamente con las credenciales que le entregamos.</td></tr>
+</table>
+
+<h2 id="manage">Operación del día a día</h2>
+<table>
+<tr><th>Tarea</th><th>Comando (en la carpeta del compose)</th></tr>
+<tr><td>Ver qué está corriendo</td><td><code>docker compose -f &lt;file&gt; ps</code></td></tr>
+<tr><td>Ver los logs en vivo</td><td><code>docker compose -f &lt;file&gt; logs -f</code></td></tr>
+<tr><td>Actualizar a la última versión</td><td><code>docker compose -f &lt;file&gt; pull &amp;&amp; docker compose -f &lt;file&gt; up -d</code></td></tr>
+<tr><td>Detener (conservando los datos)</td><td><code>docker compose -f &lt;file&gt; down</code></td></tr>
+</table>
+<p class="sub">Servidor 3: <code>docker-compose.stack.yml</code> · Servidor 2: <code>docker-compose.livekit.yml</code>.</p>
+
+<h2 id="upgrade">Actualizar desde la v1.0</h2>
+<p>Solo cambia el proxy web. Mismas imágenes, mismos puertos, misma base de datos, y los valores que ya tiene en el <code>.env</code> se mantienen — solo agrega dos líneas que apuntan a su certificado. Toma unos 15 minutos por servidor; el servicio se interrumpe únicamente los segundos que tarda cada contenedor en reiniciar.</p>
+<p class="sub">Tenga a mano el certificado y la llave de cada dominio, en formato PEM. ¿Está haciendo una instalación nueva? Sáltese esta sección.</p>
+
+<h3>Servidor 2 — Voz</h3>
+<p>Primero detenga los servicios: <code>docker compose -f docker-compose.livekit.yml down</code></p>
+<table>
+<tr><th>Archivo</th><th>Qué hacer</th></tr>
+<tr><td><code>docker-compose.livekit.yml</code></td><td>reemplazar por la versión v1.1</td></tr>
+<tr><td><code>nginx/</code> (carpeta)</td><td>nueva — colóquela junto al <code>docker-compose.livekit.yml</code>. Trae <code>default.conf</code> (nuestro) y <code>site.inc</code> (suyo)</td></tr>
+<tr><td><code>livekit.yaml</code></td><td>reemplazar (opcional — solo cambiaron comentarios)</td></tr>
+<tr><td><code>Caddyfile</code></td><td>eliminar — ya no se usa</td></tr>
+<tr><td><code>nginx/site.inc</code></td><td><b>su dominio y su certificado</b></td></tr>
+</table>
+<pre><code>cd ~/livekit
+docker compose -f docker-compose.livekit.yml down
+
+# copie los archivos de la v1.1 (compose + carpeta nginx/)
+# edite nginx/site.inc con su dominio y la ruta de su certificado
+rm -f Caddyfile
+
+docker compose -f docker-compose.livekit.yml up -d</code></pre>
+<div class="callout"><b>Dónde va su dominio y su certificado.</b> En <code>nginx/site.inc</code>, que es nginx normal:
+<pre><code>server_name         voz.sudominio.com;
+ssl_certificate     /etc/nginx/certs/fullchain.pem;
+ssl_certificate_key /etc/nginx/certs/privkey.pem;</code></pre>
+Las rutas son las que ve nginx dentro del contenedor: el compose monta <code>./certs</code> en <code>/etc/nginx/certs</code>. Si sus archivos viven en otro lugar, cambien el montaje en el compose y esas rutas.
+<br><br><code>site.inc</code> es suyo — al actualizar reemplazamos <code>default.conf</code> y nunca ese archivo. Tras editarlo: <code>docker compose -f docker-compose.livekit.yml exec nginx nginx -s reload</code>.</div>
+<p class="expect">Verifique: <code>curl -s https://&lt;su dominio&gt;/</code> responde <code>OK</code>. Si nginx no arranca, <code>docker logs bf-livekit-tls</code> dice por qué — casi siempre <code>cannot load certificate</code>, que significa que la ruta de <code>site.inc</code> no coincide con dónde están sus archivos.</p>
+
+<h3>Servidor 3 — Aplicación</h3>
+<p>Mismo esquema que el servidor de voz: la configuración de nginx va en una carpeta <code>nginx/</code> junto al compose, con <code>default.conf</code> (nuestro) y <code>site.inc</code> (su dominio y su certificado).</p>
+<p>Primero detenga los servicios: <code>docker compose -f docker-compose.stack.yml down</code></p>
+<table>
+<tr><th>Archivo</th><th>Qué hacer</th></tr>
+<tr><td><code>docker-compose.stack.yml</code></td><td>reemplazar por la versión v1.1</td></tr>
+<tr><td><code>nginx/</code> (carpeta)</td><td>nueva — colóquela junto al compose</td></tr>
+<tr><td><code>nginx/site.inc</code></td><td><b>su dominio y su certificado</b>, igual que en el Servidor 2</td></tr>
+<tr><td><code>.env</code></td><td><code>ALLOWED_ORIGINS</code> y <code>PUBLIC_SPA_INDEX_URL</code> deben nombrar el mismo dominio que <code>site.inc</code></td></tr>
+</table>
+<pre><code>cd ~/botfactory
+docker compose -f docker-compose.stack.yml down
+
+# copie el compose y la carpeta nginx/ de la v1.1
+# edite nginx/site.inc con su dominio y la ruta de su certificado
+docker compose -f docker-compose.stack.yml up -d --remove-orphans</code></pre>
+<p class="expect">Verifique: <code>docker logs bf-frontend | head -1</code> muestra <code>frontend: HTTPS on &lt;su dominio&gt;</code></p>
+
+<div class="callout"><b><code>--remove-orphans</code></b> elimina el contenedor <code>bf-caddy</code> anterior, que de lo contrario sigue ocupando el puerto 80 e impide que arranque el nuevo.</div>
+
+<h3>Después de actualizar</h3>
+<p>Ejecute <a href="#diagnose">el diagnóstico</a> en ambos servidores. Si algo falla, la salida indica cuál es el problema.</p>
+<table>
+<tr><th>Síntoma</th><th>Causa</th></tr>
+<tr><td>el contenedor se reinicia, el log dice <code>cannot load certificate</code></td><td>la ruta en <code>site.inc</code> no coincide con dónde están sus archivos</td></tr>
+<tr><td>el contenedor sale de inmediato y aparece una carpeta con nombre de archivo</td><td>no se copió la carpeta <code>nginx/</code>; Docker la creó vacía. Bórrela, copie la real y levante otra vez</td></tr>
+<tr><td>el navegador dice que el certificado no es de confianza</td><td>al archivo le faltan los certificados intermedios — use el archivo de cadena completa</td></tr>
+<tr><td>el navegador dice que el certificado es de otro sitio</td><td>no cubre el dominio configurado en <code>APP_DOMAIN</code> / <code>LIVEKIT_DOMAIN</code></td></tr>
+<tr><td>el frontend no arranca, el puerto 80 está ocupado</td><td>hay un contenedor anterior corriendo — repita con <code>--remove-orphans</code></td></tr>
+<tr><td>el sitio carga pero la aplicación no alcanza la API</td><td>el dominio de <code>site.inc</code> y el de <code>ALLOWED_ORIGINS</code> no coinciden</td></tr>
+</table>
+<p class="sub">Para volver a la v1.0: restaure el archivo compose anterior (y el <code>Caddyfile</code> en el Servidor 2) y ejecute <code>up -d</code>. La actualización no toca su <code>.env</code>, la base de datos ni los archivos almacenados.</p>
+
+<h2 id="diagnose">Diagnóstico</h2>
+<p><code>diagnose.sh</code>, incluido en los archivos de despliegue que descargó, revisa un servidor — contenedores, puertos, certificados, la conexión a la base de datos, la conexión con LiveKit y los errores recientes de los logs — e imprime un resumen de qué funciona y qué no.</p>
+<p>Ejecútelo desde la carpeta donde está el archivo compose. La forma más rápida, sin descargar nada, es pedirlo al propio servidor de la aplicación:</p>
+<pre><code>cd ~/botfactory        # o ~/livekit en el servidor de voz
+curl -fsSL https://app.sudominio.com/deploy/diagnose.sh | bash</code></pre>
+<p>Si prefiere revisarlo antes, o si el servidor no tiene salida a internet, use la copia incluida en los archivos de despliegue que descargó:</p>
+<pre><code>bash diagnose.sh</code></pre>
+<p>Desde el mismo lugar puede descargar siempre la última versión de los archivos de despliegue:</p>
+<pre><code>curl -fsSLO https://app.sudominio.com/deploy/docker-compose.stack.yml
+curl -fsSLO https://app.sudominio.com/deploy/docker-compose.sql.yml    # solo si usa SQL en contenedor
+curl -fsSL  https://app.sudominio.com/deploy/bot-factory-deploy.zip -o bot-factory-deploy.zip</code></pre>
+<p class="sub">Requiere <code>bash</code>: si lo canaliza a <code>sh</code> el script se detiene y se lo indica.</p>
+<p>Ejecútelo en <b>ambos</b> servidores — cada uno solo ve su lado de la conexión. Si algo falla, guarde la salida y envíenos los dos archivos:</p>
+<pre><code>bash diagnose.sh &gt; diagnostics-$(hostname).txt 2&gt;&amp;1</code></pre>
+<p class="sub">Es un archivo de texto plano que puede revisar antes de ejecutarlo. No se conecta a internet, no modifica nada en el servidor y no imprime contraseñas, llaves ni certificados — los secretos aparecen únicamente como "set (44 characters)".</p>
+
+<h3>Revisar desde afuera</h3>
+<p>Ejecutado <b>en</b> un servidor, el script solo puede comprobar que un puerto está abierto <i>en esa máquina</i>: si un firewall perimetral bloquea el 7881, la revisión igual pasa y ningún navegador puede conectarse. Pásele los dominios públicos y hace las mismas preguntas desde donde está el usuario. Ejecútelo desde su computadora, <b>no</b> desde los servidores:</p>
+<pre><code>bash diagnose.sh --app app.sudominio.com --livekit voz.sudominio.com</code></pre>
+<p>Resuelve el DNS, negocia el certificado en vivo, confirma que el 7881 se alcanza y que el 7880 no, verifica que los puertos internos (30000/30001/30003/31433) estén cerrados desde afuera, mide el desfase de reloj y comprueba que el servidor de voz que anuncia la aplicación sea el que realmente responde.</p>
+<p class="sub">Si el dominio resuelve a una dirección de la propia máquina o a una dirección privada, el reporte lo advierte: esa ejecución no viene realmente de afuera y no prueba lo que un navegador en internet ve.</p>
+
+<h2 id="changelog">Historial de versiones</h2>
+<p class="sub">Esta página siempre describe la versión actual. Si tiene una versión anterior instalada, siga primero <a href="#upgrade" style="color:var(--accent)">Actualizar desde la v1.0</a>.</p>
+
+<h3>v1.1 — actual</h3>
+<ul>
+  <li><b>El proxy web de ambos servidores Docker ahora es nginx.</b></li>
+  <li><b>Usted instala su propio certificado SSL.</b> Coloque el certificado y la llave en una carpeta <code>certs/</code> junto al archivo compose y apunte <code>TLS_CERT</code> y <code>TLS_KEY</code> a ellos en el <code>.env</code>.</li>
+  <li>Si deja <code>TLS_CERT</code> y <code>TLS_KEY</code> vacíos, se sirve HTTP simple en el puerto 80, para despliegues donde su propio proxy al frente maneja el HTTPS.</li>
+  <li>Nuevo script <code>diagnose.sh</code> en los archivos de despliegue: revisa un servidor e informa qué funciona y qué no.</li>
+  <li><code>IMAGE_TAG</code> en el <code>.env</code> fija el despliegue a una versión específica (por defecto, la última).</li>
+</ul>
+
+<h3>v1.0</h3>
+<ul>
+  <li>Primera versión del despliegue en tres servidores: SQL Server externo, un servidor de voz dedicado y un servidor de aplicación.</li>
+</ul>
+
+<h2 id="prod">Inicio de sesión en producción (GOB-ID)</h2>
+<p>La plantilla viene con el inicio de sesión de prueba <b>Fake-ID</b> (<code>AUTH_USE_FAKE=true</code>). Para usar el inicio de sesión real de <b>GOB-ID</b>, cambie <code>AUTH_USE_FAKE=false</code> y complete los valores <code>GOBID_*</code> (comentados en <code>.env.example</code>) con los parámetros de su integración con GOB-ID. Es un cambio solo de configuración — las mismas imágenes.</p>
+<div class="callout warn"><b>La URL de retorno está fijada en el registro de la aplicación en GOB-ID.</b> Si publica el sistema en un dominio distinto al registrado, el inicio de sesión redirige al dominio anterior y no completa. En ese caso hay que agregar <code>https://&lt;su-dominio&gt;/auth/callback</code> al registro de la aplicación en GOB-ID.</div>
+
+<footer>
+  Bot Factory — Guía de Despliegue · <a href="./bot-factory-deploy.zip" style="color:var(--accent)">archivos de despliegue (.zip)</a>
+</footer>
+
+</div>
+</body>
+</html>

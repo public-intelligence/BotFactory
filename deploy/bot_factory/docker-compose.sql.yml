@@ -1,0 +1,52 @@
+# Bot Factory — SQL Server in a container, instead of the external database.
+#
+# Overlay on docker-compose.stack.yml, not a replacement:
+#
+#   docker compose -f docker-compose.stack.yml -f docker-compose.sql.yml up -d
+#   echo 'COMPOSE_FILE=docker-compose.stack.yml:docker-compose.sql.yml' >> .env
+#
+# Requires SQL_SA_PASSWORD in .env (8+ chars, upper + lower + digit/symbol).
+# SQL_HOST, SQL_PORT, SQL_USER and SQL_PASSWORD are ignored. Budget ~2 GB RAM.
+#
+# LICENSING: the Developer edition is free for development and testing ONLY.
+# For production set SQL_EDITION=Express (free, 10 GB per database) or use the
+# external SQL Server the main stack file expects.
+
+services:
+  sql:
+    container_name: bf-sql
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SQL_SA_PASSWORD}"
+      MSSQL_PID: "${SQL_EDITION:-Developer}"
+    ports:
+      # Loopback only: the sa account is behind this. The API does not need it —
+      # it reaches SQL over the compose network.
+      - "127.0.0.1:31433:1433"
+    volumes:
+      - sql_data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      # First boot builds the system databases before answering anything.
+      start_period: 90s
+    restart: unless-stopped
+
+  api:
+    environment:
+      ConnectionStrings__BotFactoryDb: "Server=bf-sql,1433;Database=${SQL_DB:-BotFactory};User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=true;Encrypt=true;Connection Timeout=30"
+    depends_on:
+      # Merged with the stack file's conditions. The API auto-migrates at startup,
+      # so it must not start before SQL can answer.
+      sql:
+        condition: service_healthy
+
+volumes:
+  sql_data:

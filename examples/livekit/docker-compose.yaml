@@ -1,0 +1,17 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"
+
+  livekit:
+    image: livekit/livekit-server:latest
+    ports:
+      - "7880:7880"       # signaling (HTTP/WS)
+      - "7881:7881"       # RTC (TCP)
+      - "50000-50100:50000-50100/udp"  # RTC (UDP)
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+    command: ["--config", "/etc/livekit.yaml"]
+    depends_on:
+      - redis

@@ -1,0 +1,50 @@
+# Bot Factory — LiveKit media server (Server 2: dedicated Linux + Docker).
+# Single-node LiveKit (no Redis needed) + nginx terminating TLS on the signaling
+# port, so browsers can connect over wss:// (required for the microphone).
+#
+# Su dominio y su certificado se configuran en nginx/site.inc. nginx sirve
+# este host solo por HTTPS; el :80 redirige.
+#
+# Ports (host):
+#   443       signaling over TLS (wss)          -> browsers
+#   80        redirige a HTTPS
+#   7880      signaling (plain)                 -> Server 3 (api + agent), internal
+#   7881 TCP  ICE/TCP fallback                  -> browsers
+#   50000-50100/udp  WebRTC media               -> browsers
+#
+# LIVEKIT_API_KEY / LIVEKIT_API_SECRET MUST match the values in Server 3's .env.
+name: botfactory-livekit
+
+services:
+  livekit:
+    container_name: bf-livekit
+    image: livekit/livekit-server:v1.10.1
+    command: ["--config", "/etc/livekit.yaml"]
+    environment:
+      # Keys via env so they stay out of the mounted config file.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+    restart: unless-stopped
+
+  # nginx estándar con la configuración montada. Sin plantillas: los archivos
+  # de ./nginx son los que nginx lee tal cual.
+  nginx:
+    container_name: bf-livekit-tls
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # El directorio completo, no archivos sueltos: al editar con un editor que
+      # reescribe el archivo (sed -i, vim), un montaje de archivo suelto sigue
+      # apuntando al inodo viejo y el cambio no se ve hasta reiniciar.
+      - ./nginx:/etc/nginx/conf.d:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on: [livekit]
+    restart: unless-stopped
+

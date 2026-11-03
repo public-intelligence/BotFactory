@@ -1,0 +1,5 @@
+{
+  "$schema": "node_modules/ng-openapi-gen/ng-openapi-gen-schema.json",
+  "input": "../backend/BotFactory.Api/BotFactory.Api.json",
+  "output": "src/app/api"
+}

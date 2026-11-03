@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bot Factory — Prueba de incrustación</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="bar-inner">
+        <div class="brand">
+          <strong>Bot Factory</strong>
+          <span class="muted">Prueba de incrustación</span>
+        </div>
+        <div class="controls">
+          <label class="field">
+            <span>Bot</span>
+            <select id="bot-select" aria-label="Bot público"></select>
+          </label>
+          <a id="direct-link" class="btn secondary" href="#" target="_blank" rel="noopener"
+            >Abrir chat directo</a
+          >
+          <button type="button" id="help-btn" class="btn secondary">Cómo incrustar</button>
+        </div>
+      </div>
+      <p id="status" class="status" role="status" hidden></p>
+    </header>
+
+    <main>
+      <iframe
+        id="embed-frame"
+        title="Bot Factory incrustado"
+        allow="microphone; autoplay"
+        referrerpolicy="strict-origin-when-cross-origin"
+      ></iframe>
+    </main>
+
+    <dialog id="help-dialog" class="modal">
+      <form method="dialog" class="modal-card">
+        <header class="modal-header">
+          <h2>Cómo incrustar Bot Factory en tu sitio</h2>
+          <button type="submit" class="icon-btn" aria-label="Cerrar">×</button>
+        </header>
+        <div class="modal-body">
+          <p>
+            Esta página simula un portal externo: carga el asistente en un
+            <strong>iframe</strong> desde otro dominio. Si vas a hacer lo mismo en
+            tu sitio, sigue estos pasos.
+          </p>
+
+          <ol>
+            <li>
+              En Bot Factory, edita el bot → sección <strong>Acceso / Compartir</strong>.
+            </li>
+            <li>
+              El bot debe estar <strong>publicado</strong>, con acceso
+              <strong>público</strong> (sin GOB-ID) y
+              <strong>Permitir incrustar</strong> activado.
+            </li>
+            <li>
+              En <strong>Dominios permitidos</strong>, añade el origen exacto de tu
+              sitio (sin ruta), por ejemplo
+              <code>https://www.ministerio.gob.do</code>.
+              Para esta página de prueba usa:
+              <code id="harness-origin"></code>
+            </li>
+            <li>Guarda los cambios.</li>
+            <li>
+              En tu HTML usa el snippet (incluye micrófono para la voz):
+            </li>
+          </ol>
+
+          <pre id="snippet" class="snippet"></pre>
+          <button type="button" id="copy-snippet" class="btn">Copiar código</button>
+
+          <h3>Si el iframe queda en blanco</h3>
+          <ul>
+            <li>Revisa que el origen esté en Dominios permitidos y que hayas guardado.</li>
+            <li>No uses la URL <code>/chat/…</code> dentro del iframe; usa
+              <code>/api/embed/{publicId}</code>.</li>
+            <li>Bots con autenticación GOB-ID no funcionan dentro de un iframe.</li>
+          </ul>
+
+          <h3>Recomendación</h3>
+          <p>
+            Preferir el <strong>chat directo</strong> (pestaña completa) cuando sea
+            posible: es más estable, sobre todo para voz. Usa iframe solo cuando el
+            asistente deba vivir integrado en el portal.
+          </p>
+        </div>
+        <footer class="modal-footer">
+          <button type="submit" class="btn">Entendido</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

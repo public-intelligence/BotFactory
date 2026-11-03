@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="BotFactory.Api/BotFactory.Api.csproj" />
+  <Project Path="BotFactory.Core/BotFactory.Core.csproj" />
+  <Project Path="BotFactory.Infrastructure/BotFactory.Infrastructure.csproj" />
+  <Project Path="BotFactory.Tests/BotFactory.Tests.csproj" />
+  <Project Path="../kb-scraper/BotFactory.KbScraper.Contracts/BotFactory.KbScraper.Contracts.csproj" />
+  <Project Path="../kb-scraper/BotFactory.KbScraper/BotFactory.KbScraper.csproj" />
+  <Project Path="../kb-scraper/BotFactory.KbScraper.Tests/BotFactory.KbScraper.Tests.csproj" />
+</Solution>

@@ -1,0 +1,41 @@
+<div class="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 py-12 px-4">
+  <div class="max-w-lg mx-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6 px-1">
+      <div class="flex items-center gap-3">
+        <lucide-icon name="list-todo" [size]="28" class="text-indigo-500" />
+        <h1 class="text-2xl font-bold text-gray-800 tracking-tight">Todos</h1>
+      </div>
+      <button
+        class="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-400
+               bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+        (click)="commandSearch.toggle()"
+      >
+        <lucide-icon name="search" [size]="14" />
+        <span>Search</span>
+        <kbd class="text-[10px] font-medium bg-white px-1.5 py-0.5 rounded shadow-sm">&#8984;K</kbd>
+      </button>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+      <app-todo-input (added)="addTodo($event)" />
+
+      <app-todo-list
+        [todos]="filteredTodos()"
+        (toggled)="toggleTodo($event)"
+        (deleted)="deleteTodo($event)"
+      />
+
+      @if (todos().length > 0) {
+        <app-todo-footer
+          [activeCount]="activeCount()"
+          [currentFilter]="filter()"
+          (filterChange)="filter.set($event)"
+        />
+      }
+    </div>
+  </div>
+</div>
+
+<app-command-search #commandSearch />

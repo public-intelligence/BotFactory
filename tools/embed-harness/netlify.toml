@@ -1,0 +1,10 @@
+[build]
+  publish = "."
+  command = "echo 'static site — no build'"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Harness is a parent page only; do not allow this site itself to be framed.
+    Content-Security-Policy = "frame-ancestors 'none'"
+    X-Frame-Options = "DENY"

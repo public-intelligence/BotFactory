@@ -1,0 +1,62 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/*.{css,js,ico,png,svg,woff,woff2}", "/api/*", "/hubs/*", "/deploy/*"]
+  },
+  "routes": [
+    {
+      "route": "/v0/api/logs",
+      "methods": ["POST"],
+      "rewrite": "/api/logs/upload"
+    },
+    {
+      "route": "/chat/*",
+      "headers": {
+        "Content-Security-Policy": "frame-ancestors 'none'",
+        "X-Frame-Options": "DENY"
+      }
+    },
+    {
+      "route": "/login",
+      "headers": {
+        "Content-Security-Policy": "frame-ancestors 'none'",
+        "X-Frame-Options": "DENY"
+      }
+    },
+    {
+      "route": "/auth/*",
+      "headers": {
+        "Content-Security-Policy": "frame-ancestors 'none'",
+        "X-Frame-Options": "DENY"
+      }
+    },
+    {
+      "route": "/dashboard",
+      "headers": {
+        "Content-Security-Policy": "frame-ancestors 'none'",
+        "X-Frame-Options": "DENY"
+      }
+    },
+    {
+      "route": "/bots/*",
+      "headers": {
+        "Content-Security-Policy": "frame-ancestors 'none'",
+        "X-Frame-Options": "DENY"
+      }
+    },
+    {
+      "route": "/settings",
+      "headers": {
+        "Content-Security-Policy": "frame-ancestors 'none'",
+        "X-Frame-Options": "DENY"
+      }
+    },
+    {
+      "route": "/audit-logs",
+      "headers": {
+        "Content-Security-Policy": "frame-ancestors 'none'",
+        "X-Frame-Options": "DENY"
+      }
+    }
+  ]
+}

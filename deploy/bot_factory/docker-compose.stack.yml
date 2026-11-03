@@ -1,0 +1,141 @@
+# Bot Factory — application stack (Server 3: Linux + Docker).
+# Runs everything EXCEPT the database (external SQL Server, Server 1) and
+# LiveKit (dedicated host, Server 2 — see deploy/livekit/).
+#
+# Services: frontend (SPA + TLS + API proxy), api, agent, kb-scraper, azurite (blob).
+# Ports (host): 80/443 frontend (public), 30000 frontend plain-HTTP, 30001 API,
+# 30003 agent health.
+name: botfactory
+
+services:
+  azurite:
+    container_name: bf-azurite
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck
+    volumes:
+      - azurite_data:/data
+    restart: unless-stopped
+
+  kb-scraper:
+    container_name: bf-kb-scraper
+    image: ${ACR:-crvozimages-h3a3g5dzbkamfpd8.azurecr.io}/bot-factory-kb-scraper:${IMAGE_TAG:-latest}
+    environment:
+      API_KEY: "${KB_SCRAPER_API_KEY}"
+      # This service ships no appsettings.json, so it falls back to the framework
+      # default of Information for every category and logs three lines per HTTP
+      # request. With the health check below polling every 15s forever, an idle
+      # scraper is the noisiest thing in `docker compose logs`.
+      Logging__LogLevel__Microsoft.AspNetCore: "Warning"
+      MAX_CONCURRENT_RENDERS: "2"
+      DEFAULT_TIMEOUT_MS: "45000"
+      ACQUIRE_TIMEOUT_MS: "120000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  api:
+    container_name: bf-api
+    image: ${ACR:-crvozimages-h3a3g5dzbkamfpd8.azurecr.io}/bot-factory-api:${IMAGE_TAG:-latest}
+    ports:
+      - "30001:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # --- External SQL Server (Server 1). API auto-migrates on startup; the
+      #     login needs rights to create/migrate the database. ---
+      ConnectionStrings__BotFactoryDb: "Server=${SQL_HOST},${SQL_PORT:-1433};Database=${SQL_DB:-BotFactory};User Id=${SQL_USER};Password=${SQL_PASSWORD};TrustServerCertificate=${SQL_TRUST_CERT:-true};Encrypt=${SQL_ENCRYPT:-true};Connection Timeout=30"
+      AllowedOrigins: "${ALLOWED_ORIGINS}"
+      Encryption__MasterKey: "${ENCRYPTION_MASTER_KEY}"
+      # --- Auth: Fake provider (test). Set AUTH_USE_FAKE=false and fill
+      #     GOBID_* for production. ---
+      Auth__UseFakeProvider: "${AUTH_USE_FAKE:-true}"
+      Auth__FakeId__Issuer: "bot-factory-dev"
+      Auth__FakeId__Audience: "bot-factory"
+      Auth__FakeId__SigningKey: "${FAKE_SIGNING_KEY}"
+      Auth__GobId__ApiUrl: "${GOBID_API_URL:-}"
+      Auth__GobId__Audience: "${GOBID_AUDIENCE:-gobid-users}"
+      Auth__GobId__LoginBaseUrl: "${GOBID_LOGIN_BASE_URL:-}"
+      Auth__GobId__ApplicationId: "${GOBID_APP_ID:-}"
+      Auth__GobId__AppSecret: "${GOBID_APP_SECRET:-}"
+      # --- Blob (Azurite on this host). Point at real storage for production. ---
+      BlobStorage__ConnectionString: "UseDevelopmentStorage=true;DevelopmentStorageProxyUri=http://bf-azurite"
+      BlobStorage__ContainerName: "kb-documents"
+      # --- LiveKit (Server 2). Host = server-to-server (direct :7880);
+      #     PublicHost = browser-facing (wss:// via TLS). ---
+      LiveKit__Host: "http://${LIVEKIT_HOST}:${LIVEKIT_PORT:-7880}"
+      LiveKit__PublicHost: "${LIVEKIT_PUBLIC_HOST}"
+      LiveKit__ApiKey: "${LIVEKIT_API_KEY}"
+      LiveKit__ApiSecret: "${LIVEKIT_API_SECRET}"
+      # --- Agent callback + public access ---
+      AgentCallback__SharedSecret: "${AGENT_CALLBACK_SECRET}"
+      PublicAccess__SigningKey: "${PUBLIC_ACCESS_SIGNING_KEY}"
+      PublicAccess__SpaIndexUrl: "${PUBLIC_SPA_INDEX_URL}"
+      # --- KB scraper ---
+      KbScraper__BaseUrl: "http://bf-kb-scraper:8080"
+      KbScraper__ApiKey: "${KB_SCRAPER_API_KEY}"
+      KbScraper__TimeoutSeconds: "45"
+      KbScraper__Enabled: "true"
+    volumes:
+      # File log (single ~25MB window) read back by the "Registros" admin page
+      # at /api/logs; a named volume so it survives container recreation.
+      - api_logs:/app/logs
+    depends_on:
+      azurite:
+        condition: service_started
+      kb-scraper:
+        condition: service_healthy
+    restart: unless-stopped
+
+  agent:
+    container_name: bf-agent
+    image: ${ACR:-crvozimages-h3a3g5dzbkamfpd8.azurecr.io}/bot-factory-agent:${IMAGE_TAG:-latest}
+    ports:
+      - "30003:8089"
+    environment:
+      # Server-to-server connection to LiveKit (Server 2), no TLS needed.
+      LIVEKIT_URL: "ws://${LIVEKIT_HOST}:${LIVEKIT_PORT:-7880}"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET}"
+      BACKEND_URL: "http://bf-api:8080"
+      BACKEND_SHARED_SECRET: "${AGENT_CALLBACK_SECRET}"
+      AGENT_NAME: "bot-factory-agent"
+      HEALTH_PORT: "8089"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8089/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on: [api]
+    restart: unless-stopped
+
+  # Sirve la SPA y hace de proxy de /api y /hubs hacia la API, en un solo origen.
+  # La configuración de nginx se monta desde ./nginx y es editable; el dominio y
+  # el certificado van en nginx/site.inc.
+  frontend:
+    container_name: bf-frontend
+    image: ${ACR:-crvozimages-h3a3g5dzbkamfpd8.azurecr.io}/bot-factory-frontend:${IMAGE_TAG:-latest}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "30000:80"          # plain-HTTP fallback / debug
+    environment:
+      # Vacíos = mismo origen: la SPA llama a /api y /hubs y nginx los pasa a la
+      # API. El dominio y el certificado se configuran en nginx/site.inc.
+      API_URL: ""
+      HUBS_URL: ""
+    volumes:
+      # El directorio completo, no archivos sueltos: al editar con un editor que
+      # reescribe el archivo (sed -i, vim), un montaje de archivo suelto sigue
+      # apuntando al inodo viejo y el cambio no se ve hasta reiniciar.
+      - ./nginx:/etc/nginx/conf.d:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  azurite_data:
+  api_logs:

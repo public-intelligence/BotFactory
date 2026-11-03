@@ -1,0 +1,5809 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "BotFactory.Api | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/bots": {
+      "get": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "GetBots",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponseOfBotResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "CreateBot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bots/{id}": {
+      "get": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "GetBot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "UpdateBot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "DeleteBot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/by-slug/{slug}": {
+      "get": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "GetBotBySlug",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{id}/publish": {
+      "post": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "PublishBot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{id}/unpublish": {
+      "post": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "UnpublishBot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{id}/chat": {
+      "post": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "CreateChat",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSessionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/public/bots/{publicId}/chat": {
+      "post": {
+        "tags": [
+          "Public"
+        ],
+        "operationId": "CreatePublicChat",
+        "parameters": [
+          {
+            "name": "publicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PublicChatStartRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicChatSessionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/public/bots/{publicId}/conversations/{id}/resume": {
+      "post": {
+        "tags": [
+          "Public"
+        ],
+        "operationId": "ResumePublicConversation",
+        "parameters": [
+          {
+            "name": "publicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicChatSessionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "410": {
+            "description": "Gone"
+          }
+        }
+      }
+    },
+    "/api/public/bots/{publicId}/conversations/{id}/close": {
+      "post": {
+        "tags": [
+          "Public"
+        ],
+        "operationId": "ClosePublicConversation",
+        "parameters": [
+          {
+            "name": "publicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/public/bots/{publicId}/conversations/{id}": {
+      "get": {
+        "tags": [
+          "Public"
+        ],
+        "operationId": "GetPublicConversation",
+        "parameters": [
+          {
+            "name": "publicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDetailResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/by-slug/{slug}/thinking-sound/download": {
+      "get": {
+        "tags": [
+          "BotFactory.Api"
+        ],
+        "operationId": "GetBotThinkingSoundDownloadUrlBySlug",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/by-slug/{slug}/logo/download": {
+      "get": {
+        "tags": [
+          "BotFactory.Api"
+        ],
+        "operationId": "GetBotLogoDownloadUrlBySlug",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/by-slug/{slug}/branding/favicon/download": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "GetOrgFaviconDownloadUrlBySlug",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/thinking-sound": {
+      "post": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "UploadBotThinkingSound",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "file"
+                ],
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "$ref": "#/components/schemas/IFormFile"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "DeleteBotThinkingSound",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/thinking-sound/download": {
+      "get": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "GetBotThinkingSoundDownloadUrl",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/logo": {
+      "post": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "UploadBotLogo",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "file"
+                ],
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "$ref": "#/components/schemas/IFormFile"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "DeleteBotLogo",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/logo/download": {
+      "get": {
+        "tags": [
+          "Bots"
+        ],
+        "operationId": "GetBotLogoDownloadUrl",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/documents": {
+      "get": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "GetKbDocuments",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 10
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortDir",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sourceType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponseOfKbDocumentResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "UploadKbDocument",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "file"
+                ],
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "$ref": "#/components/schemas/IFormFile"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/documents/bulk-reindex": {
+      "post": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "BulkReindexKbDocuments",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkKbDocumentsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkKbDocumentsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/documents/bulk-delete": {
+      "post": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "BulkDeleteKbDocuments",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkKbDocumentsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkKbDocumentsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/documents/from-urls": {
+      "post": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "CreateKbDocumentsFromUrls",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKbDocumentsFromUrlsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateKbDocumentsFromUrlsResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateKbDocumentsFromUrlsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/documents/{docId}": {
+      "get": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "GetKbDocument",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "DeleteKbDocument",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/documents/{docId}/download": {
+      "get": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "GetKbDocumentDownloadUrl",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/documents/{docId}/content": {
+      "get": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "GetKbDocumentContent",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentContentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/documents/{docId}/reindex": {
+      "post": {
+        "tags": [
+          "KbDocuments"
+        ],
+        "operationId": "ReindexKbDocument",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "docId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbDocumentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "GetAppSettings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AppSettingResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "BulkUpsertAppSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkUpsertAppSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AppSettingResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/{serviceType}": {
+      "delete": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "DeleteAppSetting",
+        "parameters": [
+          {
+            "name": "serviceType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/settings/branding": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "GetOrgBranding",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBrandingResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/branding/logo": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "UploadOrgLogo",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "file"
+                ],
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "$ref": "#/components/schemas/IFormFile"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBrandingResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "DeleteOrgLogo",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/settings/branding/logo/download": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "GetOrgLogoDownloadUrl",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/settings/branding/favicon": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "UploadOrgFavicon",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "file"
+                ],
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "$ref": "#/components/schemas/IFormFile"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBrandingResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "DeleteOrgFavicon",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/settings/branding/favicon/download": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "operationId": "GetOrgFaviconDownloadUrl",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/tool-connections": {
+      "get": {
+        "tags": [
+          "Tool Connections"
+        ],
+        "operationId": "GetToolConnections",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ToolConnectionResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Tool Connections"
+        ],
+        "operationId": "CreateToolConnection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateToolConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
+    },
+    "/api/tool-connections/{id}": {
+      "get": {
+        "tags": [
+          "Tool Connections"
+        ],
+        "operationId": "GetToolConnection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolConnectionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tool Connections"
+        ],
+        "operationId": "UpdateToolConnection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateToolConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tool Connections"
+        ],
+        "operationId": "DeleteToolConnection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
+    },
+    "/api/tool-connections/{id}/probe": {
+      "post": {
+        "tags": [
+          "Tool Connections"
+        ],
+        "operationId": "ProbeToolConnection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolConnectionProbeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/tools": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "GetToolDefinitions",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponseOfToolDefinitionResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "CreateToolDefinition",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateToolDefinitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolDefinitionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
+    },
+    "/api/tools/{id}": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "GetToolDefinition",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolDefinitionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "UpdateToolDefinition",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateToolDefinitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolDefinitionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "DeleteToolDefinition",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
+    },
+    "/api/tools/{id}/publish": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "PublishToolDefinition",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/tools/{id}/unpublish": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "UnpublishToolDefinition",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/tools/{id}/disable": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "DisableToolDefinition",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/tools/{id}/test": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "TestToolDefinition",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolTestResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/tools/{id}/executions": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "operationId": "GetToolExecutions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponseOfToolExecutionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/tools": {
+      "get": {
+        "tags": [
+          "Bot Tools"
+        ],
+        "operationId": "GetBotTools",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BotToolResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Bot Tools"
+        ],
+        "operationId": "UpdateBotTools",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBotToolsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/voices/elevenlabs": {
+      "get": {
+        "tags": [
+          "Voices"
+        ],
+        "operationId": "GetElevenLabsVoices",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ElevenLabsVoicesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/debug/search": {
+      "post": {
+        "tags": [
+          "Debug"
+        ],
+        "operationId": "DebugSearch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit-logs": {
+      "get": {
+        "tags": [
+          "AuditLogs"
+        ],
+        "operationId": "GetAuditLogs",
+        "parameters": [
+          {
+            "name": "entityType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entityId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponseOfAuditLogResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/conversations": {
+      "get": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "GetConversations",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponseOfConversationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/conversations/{id}": {
+      "get": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "GetConversation",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "includeEvents",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/conversations/{id}/close": {
+      "post": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "CloseConversation",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/bots/{botId}/conversations/{id}/resume": {
+      "post": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "ResumeConversation",
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSessionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "410": {
+            "description": "Gone"
+          }
+        }
+      }
+    },
+    "/api/telemetry/events": {
+      "get": {
+        "tags": [
+          "Telemetry"
+        ],
+        "operationId": "GetTelemetryEvents",
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "botId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "eventNames",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponseOfTelemetryEventResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/telemetry/public-usage": {
+      "get": {
+        "tags": [
+          "Telemetry"
+        ],
+        "operationId": "GetPublicUsage",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicUsageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logs": {
+      "get": {
+        "tags": [
+          "SystemLogs"
+        ],
+        "operationId": "GetSystemLogs",
+        "parameters": [
+          {
+            "name": "take",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 200
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemLogTailResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/providers": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "GetAuthProviders",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuthProviderInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "GetLoginUrl",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginUrlResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/token": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "ExchangeToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenExchangeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticatedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "Logout",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/auth/hub-token": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "GetHubToken",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "GetCurrentUser",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AppSettingResponse": {
+        "required": [
+          "id",
+          "serviceType",
+          "provider",
+          "keyPrefix",
+          "hasKey",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "serviceType": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "keyPrefix": {
+            "type": "string"
+          },
+          "hasKey": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AuditFieldChange": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "oldValue": { },
+          "newValue": { }
+        }
+      },
+      "AuditLogResponse": {
+        "required": [
+          "id",
+          "entityType",
+          "entityId",
+          "action",
+          "changes",
+          "userId",
+          "userName",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "action": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditFieldChange"
+            }
+          },
+          "userId": {
+            "type": "string"
+          },
+          "userName": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AuthenticatedResponse": {
+        "required": [
+          "authenticated"
+        ],
+        "type": "object",
+        "properties": {
+          "authenticated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AuthProviderInfo": {
+        "required": [
+          "name",
+          "label",
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "BotResponse": {
+        "required": [
+          "id",
+          "organizationId",
+          "botName",
+          "urlSlug",
+          "publishedState",
+          "masterPrompt",
+          "topK",
+          "silenceEndMs",
+          "noSpeechTimeoutMs",
+          "maxUtteranceMs",
+          "enableBargeIn",
+          "enableTts",
+          "enableTypingSound",
+          "enableChat",
+          "enableVoice",
+          "groundedOnlyMessage",
+          "similarityThreshold",
+          "voiceId",
+          "vadActivationThreshold",
+          "vadMinSpeechDurationMs",
+          "interruptionMinDurationMs",
+          "interruptionMinWords",
+          "greetingMessage",
+          "hasCustomThinkingSound",
+          "thinkingSoundFilename",
+          "thinkingSoundVersion",
+          "requiresAuthentication",
+          "publicId",
+          "embedEnabled",
+          "allowedEmbedOrigins",
+          "publicRequestsPerMinute",
+          "themeBackground",
+          "themePrimary",
+          "themeAccent",
+          "hasCustomLogo",
+          "logoFilename",
+          "logoVersion",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "botName": {
+            "type": "string"
+          },
+          "urlSlug": {
+            "type": "string"
+          },
+          "publishedState": {
+            "type": "string"
+          },
+          "masterPrompt": {
+            "type": "string"
+          },
+          "topK": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "silenceEndMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "noSpeechTimeoutMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxUtteranceMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "enableBargeIn": {
+            "type": "boolean"
+          },
+          "enableTts": {
+            "type": "boolean"
+          },
+          "enableTypingSound": {
+            "type": "boolean"
+          },
+          "enableChat": {
+            "type": "boolean"
+          },
+          "enableVoice": {
+            "type": "boolean"
+          },
+          "groundedOnlyMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "similarityThreshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "voiceId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "vadActivationThreshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "vadMinSpeechDurationMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "interruptionMinDurationMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "interruptionMinWords": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "greetingMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasCustomThinkingSound": {
+            "type": "boolean"
+          },
+          "thinkingSoundFilename": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "thinkingSoundVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "requiresAuthentication": {
+            "type": "boolean"
+          },
+          "publicId": {
+            "type": "string"
+          },
+          "embedEnabled": {
+            "type": "boolean"
+          },
+          "allowedEmbedOrigins": {
+            "type": "string"
+          },
+          "publicRequestsPerMinute": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "themeBackground": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "themePrimary": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "themeAccent": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasCustomLogo": {
+            "type": "boolean"
+          },
+          "logoFilename": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "logoVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BotToolResponse": {
+        "required": [
+          "toolDefinitionId",
+          "name",
+          "displayName",
+          "category",
+          "status",
+          "dataClassification",
+          "requiresAuthenticatedUser",
+          "enabled",
+          "additionalInstructions",
+          "maxCallsPerConversationOverride"
+        ],
+        "type": "object",
+        "properties": {
+          "toolDefinitionId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "dataClassification": {
+            "type": "string"
+          },
+          "requiresAuthenticatedUser": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "additionalInstructions": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "maxCallsPerConversationOverride": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "BotToolUpsert": {
+        "required": [
+          "toolDefinitionId",
+          "enabled",
+          "additionalInstructions",
+          "maxCallsPerConversationOverride"
+        ],
+        "type": "object",
+        "properties": {
+          "toolDefinitionId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "additionalInstructions": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "maxCallsPerConversationOverride": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "BulkKbDocumentsRequest": {
+        "type": "object",
+        "properties": {
+          "documentIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "search": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "BulkKbDocumentsResponse": {
+        "required": [
+          "affectedCount"
+        ],
+        "type": "object",
+        "properties": {
+          "affectedCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "BulkUpsertAppSettingsRequest": {
+        "required": [
+          "settings"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpsertAppSettingRequest"
+            }
+          }
+        }
+      },
+      "ChatSessionResponse": {
+        "required": [
+          "conversationId"
+        ],
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "roomName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CloseConversationRequest": {
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ConversationDetailResponse": {
+        "required": [
+          "id",
+          "botId",
+          "userId",
+          "status",
+          "accessMode",
+          "surface",
+          "sourceUrl",
+          "parentOrigin",
+          "createdAt",
+          "pausedAt",
+          "pausedReason",
+          "closedAt",
+          "closedReason",
+          "messages",
+          "events"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "botId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "accessMode": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          },
+          "sourceUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parentOrigin": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pausedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "pausedReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "closedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "closedReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageResponse"
+            }
+          },
+          "events": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TelemetryEventResponse"
+            }
+          }
+        }
+      },
+      "ConversationResponse": {
+        "required": [
+          "id",
+          "botId",
+          "userId",
+          "status",
+          "accessMode",
+          "messageCount",
+          "createdAt",
+          "closedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "botId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "accessMode": {
+            "type": "string"
+          },
+          "messageCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateBotRequest": {
+        "required": [
+          "botName"
+        ],
+        "type": "object",
+        "properties": {
+          "botName": {
+            "type": "string"
+          },
+          "urlSlug": {
+            "type": "string",
+            "default": ""
+          },
+          "masterPrompt": {
+            "type": "string",
+            "default": ""
+          },
+          "topK": {
+            "type": "integer",
+            "format": "int32",
+            "default": 5
+          },
+          "silenceEndMs": {
+            "type": "integer",
+            "format": "int32",
+            "default": 700
+          },
+          "noSpeechTimeoutMs": {
+            "type": "integer",
+            "format": "int32",
+            "default": 15000
+          },
+          "maxUtteranceMs": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20000
+          },
+          "enableBargeIn": {
+            "type": "boolean",
+            "default": true
+          },
+          "enableTts": {
+            "type": "boolean",
+            "default": true
+          },
+          "enableTypingSound": {
+            "type": "boolean",
+            "default": true
+          },
+          "enableChat": {
+            "type": "boolean",
+            "default": false
+          },
+          "enableVoice": {
+            "type": "boolean",
+            "default": true
+          },
+          "groundedOnlyMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "similarityThreshold": {
+            "type": "number",
+            "format": "double",
+            "default": 0.4
+          },
+          "voiceId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "vadActivationThreshold": {
+            "type": "number",
+            "format": "double",
+            "default": 0.8
+          },
+          "vadMinSpeechDurationMs": {
+            "type": "integer",
+            "format": "int32",
+            "default": 400
+          },
+          "interruptionMinDurationMs": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1500
+          },
+          "interruptionMinWords": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1
+          },
+          "greetingMessage": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": "¡Hola! Estoy para servirte."
+          }
+        }
+      },
+      "CreateKbDocumentsFromUrlsRequest": {
+        "required": [
+          "urls"
+        ],
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CreateKbDocumentsFromUrlsResponse": {
+        "required": [
+          "created",
+          "skippedExistingCount"
+        ],
+        "type": "object",
+        "properties": {
+          "created": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KbDocumentResponse"
+            }
+          },
+          "skippedExistingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "skippedPdfCount": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          }
+        }
+      },
+      "CreateToolConnectionRequest": {
+        "required": [
+          "name",
+          "description",
+          "connectorType",
+          "baseUrl",
+          "authType",
+          "authConfigJson",
+          "secretsJson",
+          "defaultHeadersJson",
+          "timeoutMs",
+          "maxResponseBytes"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "connectorType": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "authType": {
+            "type": "string"
+          },
+          "authConfigJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "secretsJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "defaultHeadersJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "timeoutMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "maxResponseBytes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CreateToolDefinitionRequest": {
+        "required": [
+          "toolConnectionId",
+          "name",
+          "displayName",
+          "category",
+          "supportContact",
+          "aiDescription",
+          "aiUsageNotes",
+          "httpMethod",
+          "pathTemplate",
+          "queryParamsJson",
+          "staticHeadersJson",
+          "bodyTemplateJson",
+          "parametersSchemaJson",
+          "responseMappingJson",
+          "errorMappingJson",
+          "normalizeArgDiacritics",
+          "requiresAuthenticatedUser",
+          "maxCallsPerConversation",
+          "timeoutMsOverride",
+          "dataClassification"
+        ],
+        "type": "object",
+        "properties": {
+          "toolConnectionId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "supportContact": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "aiDescription": {
+            "type": "string"
+          },
+          "aiUsageNotes": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "httpMethod": {
+            "type": "string"
+          },
+          "pathTemplate": {
+            "type": "string"
+          },
+          "queryParamsJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "staticHeadersJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bodyTemplateJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parametersSchemaJson": {
+            "type": "string"
+          },
+          "responseMappingJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errorMappingJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "normalizeArgDiacritics": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "requiresAuthenticatedUser": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "maxCallsPerConversation": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "timeoutMsOverride": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "dataClassification": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ElevenLabsVoicesResponse": {
+        "required": [
+          "configured",
+          "voices",
+          "fetchedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "voices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VoiceDto"
+            }
+          },
+          "fetchedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "IFormFile": {
+        "type": "string",
+        "format": "binary"
+      },
+      "JsonElement": { },
+      "KbDocumentContentResponse": {
+        "required": [
+          "filename",
+          "content"
+        ],
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "KbDocumentResponse": {
+        "required": [
+          "id",
+          "botId",
+          "filename",
+          "status",
+          "sourceType",
+          "sourceUrl",
+          "indexedAt",
+          "createdAt",
+          "updatedAt",
+          "errorMessage"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "botId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "sourceUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "indexedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "errorMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "LoginUrlResponse": {
+        "required": [
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "MessageResponse": {
+        "required": [
+          "id",
+          "role",
+          "content",
+          "provider",
+          "latencyMs",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "role": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "latencyMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrgBrandingResponse": {
+        "required": [
+          "logoFilename",
+          "hasLogo",
+          "logoVersion",
+          "faviconFilename",
+          "hasFavicon",
+          "faviconVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "logoFilename": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasLogo": {
+            "type": "boolean"
+          },
+          "logoVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "faviconFilename": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasFavicon": {
+            "type": "boolean"
+          },
+          "faviconVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PaginatedResponseOfAuditLogResponse": {
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditLogResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PaginatedResponseOfBotResponse": {
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BotResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PaginatedResponseOfConversationResponse": {
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PaginatedResponseOfKbDocumentResponse": {
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KbDocumentResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PaginatedResponseOfTelemetryEventResponse": {
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TelemetryEventResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PaginatedResponseOfToolDefinitionResponse": {
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolDefinitionResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PaginatedResponseOfToolExecutionResponse": {
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolExecutionResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PublicChatSessionResponse": {
+        "required": [
+          "conversationId",
+          "accessToken",
+          "accessTokenExpiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accessToken": {
+            "type": "string"
+          },
+          "accessTokenExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "roomName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PublicChatStartRequest": {
+        "type": "object",
+        "properties": {
+          "sourceUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parentOrigin": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "embedded": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "PublicUsageDaily": {
+        "required": [
+          "date",
+          "publicConversations",
+          "authenticatedConversations",
+          "rejectedSessions",
+          "rateLimitEvents"
+        ],
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "publicConversations": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "authenticatedConversations": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rejectedSessions": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rateLimitEvents": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PublicUsageOriginCount": {
+        "required": [
+          "origin",
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "origin": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PublicUsageResponse": {
+        "required": [
+          "from",
+          "to",
+          "authenticatedConversations",
+          "publicConversations",
+          "directPublicConversations",
+          "embeddedPublicConversations",
+          "topEmbedOrigins",
+          "rejectedSessions",
+          "rateLimitEvents",
+          "daily"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "authenticatedConversations": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "publicConversations": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "directPublicConversations": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "embeddedPublicConversations": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "topEmbedOrigins": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicUsageOriginCount"
+            }
+          },
+          "rejectedSessions": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rateLimitEvents": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "daily": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicUsageDaily"
+            }
+          }
+        }
+      },
+      "SearchRequest": {
+        "required": [
+          "query",
+          "botId"
+        ],
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "botId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "topK": {
+            "type": "integer",
+            "format": "int32",
+            "default": 5
+          },
+          "maxDistance": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "SearchResponse": {
+        "required": [
+          "query",
+          "results"
+        ],
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchResultItem"
+            }
+          }
+        }
+      },
+      "SearchResultItem": {
+        "required": [
+          "chunkId",
+          "documentId",
+          "chunkIndex",
+          "text",
+          "sourceLocation",
+          "distance"
+        ],
+        "type": "object",
+        "properties": {
+          "chunkId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "documentId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "chunkIndex": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "text": {
+            "type": "string"
+          },
+          "sourceLocation": {
+            "type": "string"
+          },
+          "distance": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "SystemLogEntryResponse": {
+        "required": [
+          "timestamp",
+          "level",
+          "message",
+          "exception",
+          "category"
+        ],
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "level": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "exception": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SystemLogTailResponse": {
+        "required": [
+          "entries",
+          "fileSizeBytes",
+          "fileName"
+        ],
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SystemLogEntryResponse"
+            }
+          },
+          "fileSizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "fileName": {
+            "type": "string"
+          }
+        }
+      },
+      "TelemetryEventResponse": {
+        "required": [
+          "id",
+          "eventName",
+          "source",
+          "botId",
+          "conversationId",
+          "userId",
+          "occurredAt",
+          "stage",
+          "latencyMs",
+          "provider",
+          "errorMessage",
+          "summary",
+          "data"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "eventName": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "botId": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "conversationId": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "userId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "latencyMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "provider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errorMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "summary": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "data": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "TokenExchangeBody": {
+        "required": [
+          "code",
+          "organizationApplicationId"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "organizationApplicationId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "provider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ToolConnectionProbeResponse": {
+        "required": [
+          "ok",
+          "httpStatus",
+          "latencyMs",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "httpStatus": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "latencyMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ToolConnectionResponse": {
+        "required": [
+          "id",
+          "name",
+          "description",
+          "connectorType",
+          "baseUrl",
+          "authType",
+          "authConfigJson",
+          "hasSecrets",
+          "secretPrefix",
+          "defaultHeadersJson",
+          "timeoutMs",
+          "maxResponseBytes",
+          "status",
+          "toolCount",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "connectorType": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "authType": {
+            "type": "string"
+          },
+          "authConfigJson": {
+            "type": "string"
+          },
+          "hasSecrets": {
+            "type": "boolean"
+          },
+          "secretPrefix": {
+            "type": "string"
+          },
+          "defaultHeadersJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxResponseBytes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "toolCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ToolDefinitionResponse": {
+        "required": [
+          "id",
+          "toolConnectionId",
+          "connectionName",
+          "name",
+          "displayName",
+          "category",
+          "supportContact",
+          "aiDescription",
+          "aiUsageNotes",
+          "httpMethod",
+          "pathTemplate",
+          "queryParamsJson",
+          "staticHeadersJson",
+          "bodyTemplateJson",
+          "parametersSchemaJson",
+          "responseMappingJson",
+          "errorMappingJson",
+          "normalizeArgDiacritics",
+          "isConsequential",
+          "requiresUserConfirmation",
+          "requiresAuthenticatedUser",
+          "maxCallsPerConversation",
+          "timeoutMsOverride",
+          "dataClassification",
+          "status",
+          "lastTestedAt",
+          "lastTestOutcome",
+          "botCount",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "toolConnectionId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "connectionName": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "supportContact": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "aiDescription": {
+            "type": "string"
+          },
+          "aiUsageNotes": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "httpMethod": {
+            "type": "string"
+          },
+          "pathTemplate": {
+            "type": "string"
+          },
+          "queryParamsJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "staticHeadersJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bodyTemplateJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parametersSchemaJson": {
+            "type": "string"
+          },
+          "responseMappingJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errorMappingJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "normalizeArgDiacritics": {
+            "type": "boolean"
+          },
+          "isConsequential": {
+            "type": "boolean"
+          },
+          "requiresUserConfirmation": {
+            "type": "boolean"
+          },
+          "requiresAuthenticatedUser": {
+            "type": "boolean"
+          },
+          "maxCallsPerConversation": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "timeoutMsOverride": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "dataClassification": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "lastTestedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastTestOutcome": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "botCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ToolExecutionResponse": {
+        "required": [
+          "id",
+          "botId",
+          "conversationId",
+          "turnId",
+          "toolName",
+          "connectorType",
+          "outcome",
+          "httpStatus",
+          "errorCategory",
+          "errorMessage",
+          "resolvedRequestSummary",
+          "argumentsJson",
+          "resultSnippetJson",
+          "responseBytes",
+          "latencyMs",
+          "retryCount",
+          "isTest",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "botId": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "conversationId": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "turnId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "toolName": {
+            "type": "string"
+          },
+          "connectorType": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "httpStatus": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "errorCategory": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errorMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedRequestSummary": {
+            "type": "string"
+          },
+          "argumentsJson": {
+            "type": "string"
+          },
+          "resultSnippetJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "responseBytes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "latencyMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "retryCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "isTest": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ToolTestRequest": {
+        "required": [
+          "arguments"
+        ],
+        "type": "object",
+        "properties": {
+          "arguments": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
+      "ToolTestResponse": {
+        "required": [
+          "outcome",
+          "httpStatus",
+          "latencyMs",
+          "resolvedRequestSummary",
+          "redactedResponseJson",
+          "errorCategory",
+          "errorMessage",
+          "validationErrors"
+        ],
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "httpStatus": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "latencyMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "resolvedRequestSummary": {
+            "type": "string"
+          },
+          "redactedResponseJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errorCategory": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errorMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "validationErrors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UpdateBotRequest": {
+        "type": "object",
+        "properties": {
+          "botName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "urlSlug": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "publishedState": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "masterPrompt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "topK": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "silenceEndMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "noSpeechTimeoutMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "maxUtteranceMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "enableBargeIn": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "enableTts": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "enableTypingSound": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "enableChat": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "enableVoice": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "groundedOnlyMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "similarityThreshold": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "voiceId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "vadActivationThreshold": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "vadMinSpeechDurationMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "interruptionMinDurationMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "interruptionMinWords": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "greetingMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "requiresAuthentication": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "embedEnabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "allowedEmbedOrigins": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "publicRequestsPerMinute": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "themeBackground": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "themePrimary": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "themeAccent": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "UpdateBotToolsRequest": {
+        "required": [
+          "tools"
+        ],
+        "type": "object",
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BotToolUpsert"
+            }
+          }
+        }
+      },
+      "UpdateToolConnectionRequest": {
+        "required": [
+          "name",
+          "description",
+          "baseUrl",
+          "authType",
+          "authConfigJson",
+          "secretsJson",
+          "defaultHeadersJson",
+          "timeoutMs",
+          "maxResponseBytes",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "authType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "authConfigJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "secretsJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "defaultHeadersJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "timeoutMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "maxResponseBytes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "UpdateToolDefinitionRequest": {
+        "required": [
+          "toolConnectionId",
+          "name",
+          "displayName",
+          "category",
+          "supportContact",
+          "aiDescription",
+          "aiUsageNotes",
+          "httpMethod",
+          "pathTemplate",
+          "queryParamsJson",
+          "staticHeadersJson",
+          "bodyTemplateJson",
+          "parametersSchemaJson",
+          "responseMappingJson",
+          "errorMappingJson",
+          "normalizeArgDiacritics",
+          "requiresAuthenticatedUser",
+          "maxCallsPerConversation",
+          "timeoutMsOverride",
+          "dataClassification"
+        ],
+        "type": "object",
+        "properties": {
+          "toolConnectionId": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "supportContact": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "aiDescription": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "aiUsageNotes": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "httpMethod": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pathTemplate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "queryParamsJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "staticHeadersJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bodyTemplateJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parametersSchemaJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "responseMappingJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errorMappingJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "normalizeArgDiacritics": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "requiresAuthenticatedUser": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "maxCallsPerConversation": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "timeoutMsOverride": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "dataClassification": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "UpsertAppSettingRequest": {
+        "required": [
+          "serviceType",
+          "apiKey"
+        ],
+        "type": "object",
+        "properties": {
+          "serviceType": {
+            "type": "string"
+          },
+          "apiKey": {
+            "type": "string"
+          }
+        }
+      },
+      "UserInfoResponse": {
+        "required": [
+          "userId",
+          "fullName",
+          "organizationId",
+          "organizationName",
+          "permissions"
+        ],
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "organizationName": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "VoiceDto": {
+        "required": [
+          "voiceId",
+          "name",
+          "description",
+          "previewUrl",
+          "category"
+        ],
+        "type": "object",
+        "properties": {
+          "voiceId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "previewUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Bots"
+    },
+    {
+      "name": "Public"
+    },
+    {
+      "name": "BotFactory.Api"
+    },
+    {
+      "name": "Settings"
+    },
+    {
+      "name": "KbDocuments"
+    },
+    {
+      "name": "Tool Connections"
+    },
+    {
+      "name": "Tools"
+    },
+    {
+      "name": "Bot Tools"
+    },
+    {
+      "name": "Voices"
+    },
+    {
+      "name": "Debug"
+    },
+    {
+      "name": "AuditLogs"
+    },
+    {
+      "name": "Conversations"
+    },
+    {
+      "name": "Telemetry"
+    },
+    {
+      "name": "SystemLogs"
+    },
+    {
+      "name": "Auth"
+    }
+  ]
+}

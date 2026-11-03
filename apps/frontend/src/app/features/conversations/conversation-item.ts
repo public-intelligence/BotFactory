@@ -1,0 +1,227 @@
+import type { MessageResponse } from '../../api/models/message-response';
+import type { TelemetryEventResponse } from '../../api/models/telemetry-event-response';
+
+export interface ToolDisplayItem {
+  id: string;
+  label: string;
+  body: string;
+}
+
+export interface ToolInvocationData {
+  id: number;
+  name: string;
+  summary: string | null;
+  latencyMs: number | null;
+  items: ToolDisplayItem[];
+}
+
+/** One span in a turn's backend waterfall — a Gemini inference or a tool call. */
+export interface TurnSegment {
+  type: 'gemini' | 'tool';
+  name?: string;
+  ms: number;
+  ttftMs?: number | null;
+}
+
+/** Parsed `turn_completed` event: the per-turn backend latency breakdown. */
+export interface TurnSummaryData {
+  id: number;
+  turnId: string | null;
+  ttftMs: number | null;
+  totalMs: number | null;
+  outcome: string | null;
+  toolCount: number | null;
+  charCount: number | null;
+  segments: TurnSegment[];
+}
+
+/** One stage in a turn's agent-pipeline waterfall (EOU → STT → LLM → TTS). */
+export interface TurnPipelineStage {
+  key: string;
+  label: string;
+  ms: number;
+}
+
+/** Parsed `turn_completed` event (agent): the per-turn agent-pipeline latency breakdown. */
+export interface TurnMetricsData {
+  id: number;
+  turnId: string | null;
+  stages: TurnPipelineStage[];
+  llmTtftMs: number | null;
+  ttsTtfbMs: number | null;
+}
+
+export type ConversationItem =
+  | { kind: 'message'; occurredAt: string; data: MessageResponse }
+  | { kind: 'event'; occurredAt: string; data: TelemetryEventResponse }
+  | { kind: 'tool-invocation'; occurredAt: string; data: ToolInvocationData }
+  | { kind: 'turn-summary'; occurredAt: string; data: TurnSummaryData }
+  | { kind: 'turn-metrics'; occurredAt: string; data: TurnMetricsData };
+
+export function messageItem(m: MessageResponse): ConversationItem {
+  return { kind: 'message', occurredAt: m.createdAt, data: m };
+}
+
+export function eventItem(e: TelemetryEventResponse): ConversationItem {
+  return { kind: 'event', occurredAt: e.occurredAt, data: e };
+}
+
+/**
+ * Build a tool-invocation feed item from a tool telemetry event whose `Data`
+ * payload includes a `display: { name, items }` block emitted by the backend
+ * tool registry. The human summary lives on the event itself (`e.summary`),
+ * shared with non-tool events.
+ *
+ * Returns null only when this isn't a tool event (no `display` block at all).
+ * Empty `items` is allowed — the visible-items filter decides whether to render
+ * the row in user mode.
+ */
+export function toolInvocationItem(e: TelemetryEventResponse): ConversationItem | null {
+  if (!e.data) return null;
+  try {
+    const parsed = JSON.parse(e.data) as {
+      display?: {
+        name?: string;
+        items?: Array<{ id: string; label: string; body: string }>;
+      } | null;
+    };
+    const display = parsed.display;
+    if (!display || !Array.isArray(display.items)) return null;
+    return {
+      kind: 'tool-invocation',
+      occurredAt: e.occurredAt,
+      data: {
+        id: e.id,
+        name: display.name ?? e.eventName,
+        summary: e.summary,
+        latencyMs: e.latencyMs,
+        items: display.items,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a turn-summary waterfall item from a `backend_completed` event. The
+ * backend ships the full per-turn breakdown (Gemini spans + tool calls) in the
+ * event's `data` blob. Returns null for any other event.
+ */
+export function turnSummaryItem(e: TelemetryEventResponse): ConversationItem | null {
+  if (e.eventName !== 'backend_completed' || !e.data) return null;
+  try {
+    const parsed = JSON.parse(e.data) as {
+      turnId?: string | null;
+      ttftMs?: number | null;
+      totalMs?: number | null;
+      outcome?: string | null;
+      toolCount?: number | null;
+      charCount?: number | null;
+      segments?: Array<{ type?: string; name?: string; ms?: number; ttftMs?: number | null }>;
+    };
+    const segments: TurnSegment[] = (parsed.segments ?? [])
+      .filter((s) => s.type === 'gemini' || s.type === 'tool')
+      .map((s) => ({
+        type: s.type as 'gemini' | 'tool',
+        name: s.name,
+        ms: s.ms ?? 0,
+        ttftMs: s.ttftMs ?? null,
+      }));
+    return {
+      kind: 'turn-summary',
+      occurredAt: e.occurredAt,
+      data: {
+        id: e.id,
+        turnId: parsed.turnId ?? e.turnId ?? null,
+        ttftMs: parsed.ttftMs ?? e.latencyMs ?? null,
+        totalMs: parsed.totalMs ?? e.latencyMs ?? null,
+        outcome: parsed.outcome ?? null,
+        toolCount: parsed.toolCount ?? null,
+        charCount: parsed.charCount ?? null,
+        segments,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a turn-metrics waterfall item from a `turn_completed` event. The agent
+ * ships the per-stage pipeline latencies (EOU/STT/LLM/TTS) in `data`. Returns
+ * null for any other event. The pipeline `llm` stage ≈ the backend
+ * `backend_completed` total, so the two waterfalls share a turn id.
+ */
+export function turnMetricsItem(e: TelemetryEventResponse): ConversationItem | null {
+  if (e.eventName !== 'turn_completed' || !e.data) return null;
+  try {
+    const d = JSON.parse(e.data) as Record<string, unknown>;
+    const num = (k: string): number | null =>
+      typeof d[k] === 'number' ? (d[k] as number) : null;
+    const order: Array<{ key: string; label: string }> = [
+      { key: 'eouMs', label: 'eou' },
+      { key: 'sttMs', label: 'stt' },
+      { key: 'llmMs', label: 'llm' },
+      { key: 'ttsMs', label: 'tts' },
+    ];
+    const stages: TurnPipelineStage[] = order
+      .map(({ key, label }) => ({ key: label, label, ms: num(key) ?? -1 }))
+      .filter((s) => s.ms >= 0);
+    if (stages.length === 0) return null;
+    return {
+      kind: 'turn-metrics',
+      occurredAt: e.occurredAt,
+      data: {
+        id: e.id,
+        turnId: (typeof d['turnId'] === 'string' ? (d['turnId'] as string) : null) ?? e.turnId ?? null,
+        stages,
+        llmTtftMs: num('llmTtftMs'),
+        ttsTtfbMs: num('ttsTtfbMs'),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Returns microseconds since epoch to preserve sub-millisecond ordering.
+// JS Date only has ms precision; extra fractional digits are parsed separately.
+function toUtcMs(iso: string): number {
+  const normalized = /Z|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}Z`;
+  const ms = new Date(normalized).getTime();
+  const frac = normalized.match(/\.(\d+)/);
+  if (!frac) return ms * 1000;
+  const digits = frac[1].padEnd(6, '0').slice(0, 6);
+  const us = parseInt(digits, 10) % 1000;
+  return ms * 1000 + us;
+}
+
+export function sortItems(items: ConversationItem[]): ConversationItem[] {
+  return [...items].sort((a, b) => {
+    const ta = toUtcMs(a.occurredAt);
+    const tb = toUtcMs(b.occurredAt);
+    if (ta !== tb) return ta - tb;
+    // Tie-break: messages first, then tool invocations, then events, then the
+    // per-turn summaries (they close the turn); same kind by id.
+    if (a.kind !== b.kind) {
+      const order = {
+        message: 0,
+        'tool-invocation': 1,
+        event: 2,
+        'turn-metrics': 3,
+        'turn-summary': 4,
+      } as const;
+      return order[a.kind] - order[b.kind];
+    }
+    return a.data.id - b.data.id;
+  });
+}
+
+/**
+ * Stable identity key for dedupe + Angular track-by.
+ * Backend never reissues message or event ids, so kind+id is sufficient.
+ */
+export function itemKey(item: ConversationItem): string {
+  return `${item.kind}:${item.data.id}`;
+}

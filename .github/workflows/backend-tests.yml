@@ -1,0 +1,221 @@
+name: CI
+# trigger
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/backend/**", "apps/frontend/**", "apps/agent/**", "Dockerfile"]
+  pull_request:
+    branches: [main]
+    paths: ["apps/backend/**", "apps/frontend/**", "apps/agent/**", "Dockerfile"]
+
+permissions:
+  contents: read
+  packages: read   # @public-intelligence/ui-core en GitHub Packages
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      agent: ${{ steps.filter.outputs.agent }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'apps/backend/**'
+            frontend:
+              - 'apps/frontend/**'
+            agent:
+              - 'apps/agent/**'
+
+  test-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore
+        working-directory: apps/backend
+
+      - name: Build
+        run: dotnet build --no-restore
+        working-directory: apps/backend
+
+      - name: Test
+        run: dotnet test --no-build --logger "console;verbosity=normal"
+        working-directory: apps/backend
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: true
+
+      - name: Check OpenAPI spec is up to date
+        run: git diff --exit-code apps/backend/BotFactory.Api/BotFactory.Api.json
+
+  test-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install deps & test
+        working-directory: apps/frontend
+        env:
+          NPM_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # lo lee apps/frontend/.npmrc
+        run: |
+          npm ci
+          npm test -- --watch=false
+
+      - name: Check generated frontend client is up to date
+        working-directory: apps/frontend
+        env:
+          NPM_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # lo lee apps/frontend/.npmrc
+        run: |
+          npm ci
+          npm run api:generate
+          git diff --exit-code src/app/api/
+
+  test-agent:
+    needs: changes
+    if: needs.changes.outputs.agent == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python (uv)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Run pytest
+        working-directory: apps/agent
+        run: |
+          uv sync --frozen
+          uv run pytest
+
+  test:
+    needs: [test-backend, test-frontend, test-agent]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate test results
+        run: |
+          echo "backend=${{ needs.test-backend.result }}"
+          echo "frontend=${{ needs.test-frontend.result }}"
+          echo "agent=${{ needs.test-agent.result }}"
+          for r in "${{ needs.test-backend.result }}" "${{ needs.test-frontend.result }}" "${{ needs.test-agent.result }}"; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              exit 1
+            fi
+          done
+
+  changes-docker:
+    needs: [test-backend, test-frontend, test-agent]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      agent: ${{ steps.filter.outputs.agent }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'apps/backend/**'
+            frontend:
+              - 'apps/frontend/**'
+            agent:
+              - 'apps/agent/**'
+
+  docker-backend:
+    needs: changes-docker
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/bot-factory-api:latest
+            ghcr.io/${{ github.repository }}/bot-factory-api:${{ github.sha }}
+
+  docker-frontend:
+    needs: changes-docker
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/frontend
+          push: true
+          build-args: |
+            NPM_TOKEN=${{ secrets.VUC_NPM_TOKEN }}
+          tags: |
+            ghcr.io/${{ github.repository }}/bot-factory-frontend:latest
+            ghcr.io/${{ github.repository }}/bot-factory-frontend:${{ github.sha }}
+
+  docker-agent:
+    needs: changes-docker
+    if: needs.changes.outputs.agent == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push agent
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/agent
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/bot-factory-agent:latest
+            ghcr.io/${{ github.repository }}/bot-factory-agent:${{ github.sha }}

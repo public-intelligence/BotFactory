@@ -1,0 +1,25 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "BotFactory@Pass123!"
+    ports:
+      - "30001:1433"
+    volumes:
+      - sqldata:/var/lib/mssql/data
+
+  api:
+    image: ghcr.io/wovalle/bot_factory/bot-factory-api:latest
+    ports:
+      - "30000:8080"
+    environment:
+      - ConnectionStrings__BotFactoryDb=Server=sqlserver,1433;Database=BotFactory;User Id=sa;Password=BotFactory@Pass123!;TrustServerCertificate=true
+      - AllowedOrigins=http://localhost:4200
+      - Auth__UseFakeProvider=true
+      - Auth__DevSigningKey=dev-signing-key-at-least-32-chars-long!!
+    depends_on:
+      - sqlserver
+
+volumes:
+  sqldata:

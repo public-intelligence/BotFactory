@@ -1,0 +1,50 @@
+# Auto Claude data directory
+.auto-claude/
+
+# Auto Claude generated files
+.auto-claude-security.json
+.auto-claude-status
+.claude_settings.json
+.worktrees/
+.security-key
+logs/security/
+
+# Node
+node_modules/
+
+# TypeScript build output
+dist/
+
+# Environment files
+.env
+.npmrc
+!apps/frontend/.npmrc
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Angular
+.angular/
+.secrets.azure
+docker-compose.local.yml
+
+# Deployment secrets — never commit real credentials or filled-in env files
+deploy/creds.txt
+deploy/.env
+deploy/**/.env
+
+.DS_Store
+.context/
+
+# Playwright MCP session artifacts (page snapshots, console logs)
+.playwright-mcp/
+
+# Local Netlify folder
+.netlify
+
+# Configuración personal de Claude Code de cada desarrollador
+.claude/settings.local.json

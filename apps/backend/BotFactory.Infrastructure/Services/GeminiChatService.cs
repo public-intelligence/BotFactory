@@ -1,0 +1,241 @@
+using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using BotFactory.Core.Entities;
+using BotFactory.Core.Services;
+using BotFactory.Core.Tools;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace BotFactory.Infrastructure.Services;
+
+public abstract record GeminiStreamEvent;
+
+public sealed record GeminiTextDelta(string Text) : GeminiStreamEvent;
+
+public sealed record GeminiFunctionCall(string Name, JsonElement Args) : GeminiStreamEvent;
+
+/// <summary>
+/// Extra Gemini API <c>contents</c> turns (e.g. model functionCall + user functionResponse) within a single voice turn.
+/// </summary>
+public sealed record GeminiExtraContent(string Role, object[] Parts);
+
+public class GeminiChatService
+{
+    private const string GenerateContentBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
+
+    // camelCase keys + drop nulls so the typed FunctionDeclaration / JsonSchema
+    // records serialize to the exact wire shape Gemini expects.
+    private static readonly JsonSerializerOptions WireOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    private readonly HttpClient _http;
+    private readonly IAppSettingService _appSettings;
+    private readonly IOptions<GeminiChatOptions> _options;
+    private readonly ILogger<GeminiChatService> _logger;
+    private readonly IToolRegistry _tools;
+
+    public GeminiChatService(
+        HttpClient http,
+        IAppSettingService appSettings,
+        IOptions<GeminiChatOptions> options,
+        ILogger<GeminiChatService> logger,
+        IToolRegistry tools)
+    {
+        _http = http;
+        _appSettings = appSettings;
+        _options = options;
+        _logger = logger;
+        _tools = tools;
+    }
+
+    /// <summary>
+    /// Streams assistant output from Gemini (SSE): text deltas and/or function calls.
+    /// </summary>
+    public async IAsyncEnumerable<GeminiStreamEvent> StreamAsync(
+        string systemInstruction,
+        IReadOnlyList<GeminiChatMessage> history,
+        IReadOnlyList<GeminiExtraContent> extraContents,
+        string? newUserText,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var apiKey = await _appSettings.GetDecryptedKeyAsync(ServiceType.Llm)
+            ?? throw new InvalidOperationException(
+                "LLM API key not configured. Add a Gemini key for the LLM stage in Settings.");
+
+        var model = _options.Value.ChatModel;
+        var url =
+            $"{GenerateContentBaseUrl}/{model}:streamGenerateContent?alt=sse&key={Uri.EscapeDataString(apiKey)}";
+
+        var payload = BuildStreamRequest(
+            systemInstruction,
+            history,
+            extraContents,
+            newUserText);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(payload, options: WireOptions),
+        };
+
+        using var response = await _http.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var status = (int)response.StatusCode;
+            _logger.LogError(
+                "Gemini streamGenerateContent failed status={Status} body={Body}",
+                status,
+                errBody.Length > 2000 ? errBody[..2000] : errBody);
+            var info = ProviderErrorClassifier.ClassifyGemini(status, errBody);
+            throw new ProviderServiceException(info, errBody);
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (line is null)
+                break;
+
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith(':'))
+                continue;
+
+            if (!line.StartsWith("data:", StringComparison.Ordinal))
+                continue;
+
+            var data = line.AsSpan(5).Trim();
+            if (data.Length == 0 || data.SequenceEqual("[DONE]"))
+                continue;
+
+            IEnumerable<GeminiStreamEvent> events;
+            try
+            {
+                events = ParseStreamDataEvents(data.ToString());
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Skipping malformed Gemini SSE JSON");
+                continue;
+            }
+
+            foreach (var ev in events)
+                yield return ev;
+        }
+    }
+
+    private object BuildStreamRequest(
+        string systemInstruction,
+        IReadOnlyList<GeminiChatMessage> history,
+        IReadOnlyList<GeminiExtraContent> extraContents,
+        string? newUserText)
+    {
+        var contents = new List<object>();
+        foreach (var m in history)
+        {
+            contents.Add(new
+            {
+                role = m.Role == MessageRole.User ? "user" : "model",
+                parts = new[] { new { text = m.Content } },
+            });
+        }
+
+        if (!string.IsNullOrEmpty(newUserText))
+        {
+            contents.Add(new
+            {
+                role = "user",
+                parts = new[] { new { text = newUserText } },
+            });
+        }
+
+        foreach (var ex in extraContents)
+        {
+            contents.Add(new
+            {
+                role = ex.Role,
+                parts = ex.Parts,
+            });
+        }
+
+        var body = new Dictionary<string, object?>
+        {
+            ["systemInstruction"] = new { parts = new[] { new { text = systemInstruction } } },
+            ["contents"] = contents.ToArray(),
+            // Bound answer length (voice replies must stay short), lower the
+            // default ~1.0 temperature to reduce topic drift, and disable
+            // gemini-2.5-flash "thinking" by default for lower voice latency.
+            ["generationConfig"] = new
+            {
+                temperature = _options.Value.Temperature,
+                maxOutputTokens = _options.Value.MaxOutputTokens,
+                thinkingConfig = new { thinkingBudget = _options.Value.ThinkingBudget },
+            },
+        };
+
+        var toolsPayload = _tools.BuildGeminiToolsPayload();
+        if (toolsPayload.Length > 0)
+        {
+            body["tools"] = toolsPayload;
+            body["toolConfig"] = new { functionCallingConfig = new { mode = "AUTO" } };
+        }
+
+        return body;
+    }
+
+    private static IEnumerable<GeminiStreamEvent> ParseStreamDataEvents(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        foreach (var ev in ParseStreamChunkEvents(doc.RootElement))
+            yield return ev;
+    }
+
+    public static IEnumerable<GeminiStreamEvent> ParseStreamChunkEvents(JsonElement root)
+    {
+        if (!root.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+            yield break;
+
+        var candidate = candidates[0];
+        if (!candidate.TryGetProperty("content", out var content))
+            yield break;
+
+        if (!content.TryGetProperty("parts", out var parts) || parts.GetArrayLength() == 0)
+            yield break;
+
+        foreach (var part in parts.EnumerateArray())
+        {
+            if (part.TryGetProperty("functionCall", out var fc))
+            {
+                var name = fc.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
+                JsonElement args;
+                if (fc.TryGetProperty("args", out var argsEl))
+                    args = argsEl.Clone();
+                else
+                {
+                    using var emptyArgs = JsonDocument.Parse("{}");
+                    args = emptyArgs.RootElement.Clone();
+                }
+
+                yield return new GeminiFunctionCall(name, args);
+            }
+
+            if (part.TryGetProperty("text", out var textEl))
+            {
+                var t = textEl.GetString();
+                if (!string.IsNullOrEmpty(t))
+                    yield return new GeminiTextDelta(t);
+            }
+        }
+    }
+}

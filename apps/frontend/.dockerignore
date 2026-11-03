@@ -1,0 +1,7 @@
+# Keep the build context small: `az acr build` uploads it before building.
+# NOT .npmrc — the Dockerfile copies it to authenticate against GitHub Packages (@public-intelligence).
+node_modules
+dist
+.angular
+.git
+*.log
