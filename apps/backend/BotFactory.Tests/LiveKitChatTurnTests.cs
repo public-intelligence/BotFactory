@@ -674,6 +674,25 @@ public class LiveKitChatTurnTests
     }
 
     [Fact]
+    public async Task ChatTurn_AWrittenFormInsideALink_IsNotPronounced_TheLinkIsDroppedFirst()
+    {
+        // The rule «ABC» must not turn the «abc» of a link into «a, be, ce»: links are taken out of
+        // the spoken text before the rules apply, and the word outside the link is still pronounced.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(TextStream("Visite https://www.abc.do/tramites o vaya al Punto ABC."));
+
+        var (app, convId) = await AppWithConversationAsync(
+            handler, configureBot: b => b.PronunciationRules = "ABC → a, be, ce");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        var spoken = SpokenText(sse);
+        Assert.Equal("Visite o vaya al Punto a, be, ce.", spoken);
+        Assert.DoesNotContain("tramites", spoken, StringComparison.Ordinal);
+        Assert.Equal("Visite https://www.abc.do/tramites o vaya al Punto ABC.", (await MessagesOfAsync(app, convId))[^1].Content);
+    }
+
+    [Fact]
     public async Task ChatTurn_WithoutPronunciationRules_TheSpokenTextIsUntouched()
     {
         var handler = new ScriptedGeminiHandler();
