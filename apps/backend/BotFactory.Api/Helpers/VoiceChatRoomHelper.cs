@@ -22,7 +22,8 @@ public static class VoiceChatRoomHelper
             InterruptionMinDurationMs: bot.InterruptionMinDurationMs,
             InterruptionMinWords: bot.InterruptionMinWords,
             GreetingMessage: bot.GreetingMessage,
-            IsResume: isResume);
+            IsResume: isResume,
+            TranscriptionVocabulary: TranscriptionTerms.Parse(bot.TranscriptionVocabulary));
 
     public static string NewRoomName(int conversationId, bool isResume) =>
         isResume

@@ -247,6 +247,11 @@ namespace BotFactory.Infrastructure.Migrations
                     b.Property<int>("TopK")
                         .HasColumnType("int");
 
+                    b.Property<string>("TranscriptionVocabulary")
+                        .IsRequired()
+                        .HasMaxLength(1200)
+                        .HasColumnType("nvarchar(1200)");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 

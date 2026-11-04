@@ -89,6 +89,58 @@ public class BotApiTests
     }
 
     [Fact]
+    public async Task UpdateBot_TranscriptionVocabulary_IsSavedNormalized_AndOmittingItKeepsIt()
+    {
+        var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);
+
+        var createResponse = await client.PostAsJsonAsync("/api/bots", new CreateBotRequest(
+            BotName: "Vocabulary Bot",
+            UrlSlug: "vocabulary-bot-terms"));
+        var created = await createResponse.Content.ReadFromJsonAsync<BotResponse>();
+        Assert.NotNull(created);
+        Assert.Equal(string.Empty, created.TranscriptionVocabulary);
+
+        var saved = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(
+            TranscriptionVocabulary: "Aurora, ABCD\n  Punto   Ciudadano \nquisqueya\nQuisqueya"));
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        Assert.Equal("Aurora\nABCD\nPunto Ciudadano\nquisqueya", (await saved.Content.ReadFromJsonAsync<BotResponse>())!.TranscriptionVocabulary);
+
+        // A save that does not mention it (another settings tab) leaves it as it was.
+        await client.PutAsJsonAsync($"/api/bots/{created.Id}", new { botName = "Vocabulary Bot Renamed" });
+        var reloaded = await client.GetFromJsonAsync<BotResponse>($"/api/bots/{created.Id}");
+        Assert.Equal("Aurora\nABCD\nPunto Ciudadano\nquisqueya", reloaded!.TranscriptionVocabulary);
+
+        // An empty text clears it.
+        var cleared = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(TranscriptionVocabulary: ""));
+        Assert.Equal(string.Empty, (await cleared.Content.ReadFromJsonAsync<BotResponse>())!.TranscriptionVocabulary);
+    }
+
+    [Fact]
+    public async Task UpdateBot_TranscriptionVocabularyOverTheRecognisersLimits_IsRejected_AndNothingIsSaved()
+    {
+        var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);
+        var created = await (await client.PostAsJsonAsync("/api/bots", new CreateBotRequest(
+            BotName: "Vocabulary Limits Bot",
+            UrlSlug: "vocabulary-limits-bot"))).Content.ReadFromJsonAsync<BotResponse>();
+        Assert.NotNull(created);
+        await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(TranscriptionVocabulary: "XYZ"));
+
+        var tooLong = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(
+            BotName: "Should Not Be Saved",
+            TranscriptionVocabulary: "Instituto Nacional de Tránsito y Transporte Terrestre"));
+        Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+        Assert.Contains("longer than 20", await tooLong.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        var tooMany = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(
+            TranscriptionVocabulary: string.Join('\n', Enumerable.Range(0, 51).Select(i => $"término{i}"))));
+        Assert.Equal(HttpStatusCode.BadRequest, tooMany.StatusCode);
+
+        var reloaded = await client.GetFromJsonAsync<BotResponse>($"/api/bots/{created.Id}");
+        Assert.Equal("Vocabulary Limits Bot", reloaded!.BotName);
+        Assert.Equal("XYZ", reloaded.TranscriptionVocabulary);
+    }
+
+    [Fact]
     public async Task UpdateBot_EmptyGreetingMessage_ClearsGreeting()
     {
         var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);

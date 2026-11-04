@@ -1,6 +1,7 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
+import { MAX_TERMS, checkVocabulary, vocabularyProblem } from './transcription-vocabulary';
 import { DropdownSearchComponent } from '@public-intelligence/ui-core';
 import { BotEditStore } from './bot-edit.store';
 import { InfoTooltip } from '../../shared/info-tooltip';
@@ -266,6 +267,31 @@ import { toast } from 'ngx-sonner';
         </div>
       </section>
 
+      <!-- Vocabulario de transcripción -->
+      <section>
+        <h3 class="mb-4 inline-flex items-center text-base font-semibold text-neutral-900">
+          Vocabulario de transcripción
+          <app-info-tooltip
+            text="Palabras que el reconocimiento de voz debe favorecer: el nombre del bot, instituciones, siglas y lugares que suele confundir con otras palabras. Un término por línea, hasta 50 términos de 20 caracteres. Solo afecta a la voz; el chat no cambia."
+          />
+        </h3>
+        <textarea
+          rows="6"
+          [formControl]="form.controls.transcriptionVocabulary"
+          [disabled]="!voiceEnabled()"
+          placeholder="Aurora&#10;Punto Ciudadano&#10;Quisqueya"
+          class="w-full rounded-lg border bg-white px-3 py-2 text-sm text-neutral-900 focus:outline-none"
+          [class]="vocabularyBorder()"
+        ></textarea>
+        @if (vocabularyProblem(); as problem) {
+          <p class="mt-1 text-xs text-red-600">{{ problem }}</p>
+        } @else {
+          <p class="mt-1 text-xs text-neutral-400">
+            Un término por línea. {{ vocabularyCheck().terms.length }} de {{ maxTerms }}.
+          </p>
+        }
+      </section>
+
       <!-- Opciones de Comportamiento -->
       <section>
         <h3 class="mb-4 text-base font-semibold text-neutral-900">
@@ -378,7 +404,7 @@ import { toast } from 'ngx-sonner';
         <button
           type="button"
           (click)="onSave()"
-          [disabled]="saving() || !voiceEnabled()"
+          [disabled]="saving() || !voiceEnabled() || !!vocabularyProblem()"
           class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
         >
           {{ saving() ? 'Guardando...' : 'Guardar' }}
@@ -414,7 +440,18 @@ export class BotEditVoz {
     vadMinSpeechDurationMs: [200],
     interruptionMinDurationMs: [1000],
     interruptionMinWords: [1],
+    transcriptionVocabulary: [''],
   });
+
+  protected readonly maxTerms = MAX_TERMS;
+  private readonly vocabularyText = toSignal(this.form.controls.transcriptionVocabulary.valueChanges, {
+    initialValue: this.form.controls.transcriptionVocabulary.value,
+  });
+  protected readonly vocabularyCheck = computed(() => checkVocabulary(this.vocabularyText()));
+  protected readonly vocabularyProblem = computed(() => vocabularyProblem(this.vocabularyCheck()));
+  protected readonly vocabularyBorder = computed(() =>
+    this.vocabularyProblem() ? 'border-red-400' : 'border-neutral-200 focus:border-neutral-400',
+  );
 
   readonly selectedVoiceId = toSignal(this.form.controls.voiceId.valueChanges, {
     initialValue: this.form.controls.voiceId.value,
@@ -468,6 +505,7 @@ export class BotEditVoz {
           vadMinSpeechDurationMs: bot.vadMinSpeechDurationMs,
           interruptionMinDurationMs: bot.interruptionMinDurationMs,
           interruptionMinWords: bot.interruptionMinWords,
+          transcriptionVocabulary: bot.transcriptionVocabulary ?? '',
         });
       }
     });
@@ -563,6 +601,7 @@ export class BotEditVoz {
         vadMinSpeechDurationMs: bot.vadMinSpeechDurationMs,
         interruptionMinDurationMs: bot.interruptionMinDurationMs,
         interruptionMinWords: bot.interruptionMinWords,
+        transcriptionVocabulary: bot.transcriptionVocabulary ?? '',
       });
     }
   }
@@ -589,6 +628,7 @@ export class BotEditVoz {
           vadMinSpeechDurationMs: values.vadMinSpeechDurationMs,
           interruptionMinDurationMs: values.interruptionMinDurationMs,
           interruptionMinWords: values.interruptionMinWords,
+          transcriptionVocabulary: values.transcriptionVocabulary,
         },
       });
       this.store.bot.set(updated);

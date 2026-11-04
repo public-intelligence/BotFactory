@@ -40,3 +40,24 @@ def test_malformed_job_metadata_is_never_echoed() -> None:
         parse_room_metadata(ROOM, '{"elevenLabsApiKey": "sk-secret')
 
     assert "sk-secret" not in str(e.value)
+
+
+def test_vocabulary_comes_from_room_metadata_cleaned() -> None:
+    room = json.dumps(
+        {
+            "botId": 1,
+            "conversationId": 2,
+            "voiceId": "voice-1",
+            "transcriptionVocabulary": ["Aurora", " Punto  Ciudadano ", "", 7, "aurora", "x" * 40],
+        }
+    )
+
+    meta = parse_room_metadata(room, json.dumps({"elevenLabsApiKey": "sk-job"}))
+
+    assert meta.transcription_vocabulary == ["Aurora", "Punto Ciudadano"]
+
+
+def test_rooms_without_a_vocabulary_get_an_empty_one() -> None:
+    meta = parse_room_metadata(ROOM, json.dumps({"elevenLabsApiKey": "sk-job"}))
+
+    assert meta.transcription_vocabulary == []

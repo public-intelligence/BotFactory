@@ -27,6 +27,7 @@ export interface UpdateBotRequest {
   themeBackground?: (string | null);
   themePrimary?: (string | null);
   topK?: (number | null);
+  transcriptionVocabulary?: (string | null);
   urlSlug?: (string | null);
   vadActivationThreshold?: (number | null);
   vadMinSpeechDurationMs?: (number | null);

@@ -20,6 +20,8 @@ public class BotConfiguration : IEntityTypeConfiguration<Bot>
         builder.Property(b => b.GroundedOnlyMessage).HasMaxLength(2000);
         builder.Property(b => b.PublicId).IsRequired().HasMaxLength(32);
         builder.Property(b => b.AllowedEmbedOrigins).IsRequired().HasMaxLength(2000);
+        // 50 terms of up to 20 characters, one per line (TranscriptionTerms).
+        builder.Property(b => b.TranscriptionVocabulary).IsRequired().HasMaxLength(1200);
         builder.Property(b => b.ThemeBackground).HasMaxLength(7);
         builder.Property(b => b.ThemePrimary).HasMaxLength(7);
         builder.Property(b => b.ThemeAccent).HasMaxLength(7);

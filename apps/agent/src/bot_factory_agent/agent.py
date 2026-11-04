@@ -17,6 +17,7 @@ from livekit.agents import (
     JobContext,
     JobProcess,
 )
+from livekit.agents.utils import http_context
 from livekit.agents.voice.room_io import RoomInputOptions
 from livekit.plugins import elevenlabs, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -33,6 +34,7 @@ from bot_factory_agent.config import (
     load_worker_server_config,
     parse_room_metadata,
 )
+from bot_factory_agent.keyterms import KeytermsSession
 from bot_factory_agent.llm_backend import BackendLLM
 from bot_factory_agent.relays import BackendRelay, ClientRelay
 from bot_factory_agent.turn_metrics import TurnMetricsTracker
@@ -202,11 +204,25 @@ async def entrypoint(ctx: JobContext) -> None:
     conversation_id = meta.conversation_id
     el_key = _require_eleven_key(meta)
 
+    # The bot's vocabulary (names, institutions, acronyms) goes to the recogniser with the
+    # realtime socket's URL: the plugin only sends keyterms for batch recognition, so the
+    # session it opens that socket with is wrapped (see keyterms.py).
+    stt_session = (
+        KeytermsSession(http_context.http_session(), meta.transcription_vocabulary)
+        if meta.transcription_vocabulary
+        else None
+    )
+    if stt_session is not None:
+        logger.info(
+            "stt vocabulary bot_id=%s terms=%s", meta.bot_id, len(meta.transcription_vocabulary)
+        )
+
     # Same ElevenLabs key for STT and TTS (contract with .NET); no LiveKit Cloud inference.
     stt = elevenlabs.STT(
         api_key=el_key,
         model_id="scribe_v2_realtime",
         language_code=ELEVENLABS_STT_LANGUAGE_CODE,
+        http_session=stt_session,
     )
     tts = elevenlabs.TTS(
         api_key=el_key,

@@ -26,7 +26,11 @@ public record RoomMetadata(
     int InterruptionMinDurationMs,
     int InterruptionMinWords,
     string? GreetingMessage = null,
-    bool IsResume = false);
+    bool IsResume = false,
+    // Words the speech recogniser should favour for this bot; the agent hands them to the
+    // provider when it opens the transcription stream. Not a secret: room metadata reaches
+    // every participant.
+    IReadOnlyList<string>? TranscriptionVocabulary = null);
 
 /// <summary>
 /// Secrets for the agent, serialized as JSON into the agent dispatch metadata.

@@ -11,7 +11,13 @@ public class LiveKitRoomRequestTests
 {
     private const string ApiKey = "sk-test-secret-value";
 
-    private static Bot NewBot() => new() { Id = 7, VoiceId = "voice-1", GreetingMessage = "Hola" };
+    private static Bot NewBot() => new()
+    {
+        Id = 7,
+        VoiceId = "voice-1",
+        GreetingMessage = "Hola",
+        TranscriptionVocabulary = "Aurora\nPunto Ciudadano\nQuisqueya",
+    };
 
     [Theory]
     [InlineData(false)]
@@ -57,5 +63,22 @@ public class LiveKitRoomRequestTests
         Assert.Equal("voice-1", root.GetProperty("voiceId").GetString());
         Assert.Equal("Hola", root.GetProperty("greetingMessage").GetString());
         Assert.True(root.GetProperty("isResume").GetBoolean());
+        // The words the recogniser should favour travel as a list the agent hands to the provider.
+        Assert.Equal(
+            ["Aurora", "Punto Ciudadano", "Quisqueya"],
+            root.GetProperty("transcriptionVocabulary").EnumerateArray().Select(e => e.GetString()).ToArray());
+    }
+
+    [Fact]
+    public void RoomMetadata_WithoutVocabulary_SendsAnEmptyList()
+    {
+        var bot = NewBot();
+        bot.TranscriptionVocabulary = string.Empty;
+
+        var request = LiveKitService.BuildCreateRoomRequest(
+            VoiceChatRoomHelper.BuildRoomMetadata(bot, 42), new AgentJobMetadata(ApiKey), VoiceChatRoomHelper.AgentName, "42");
+
+        using var json = JsonDocument.Parse(request.Metadata);
+        Assert.Equal(0, json.RootElement.GetProperty("transcriptionVocabulary").GetArrayLength());
     }
 }

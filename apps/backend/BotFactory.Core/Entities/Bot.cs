@@ -44,6 +44,13 @@ public class Bot : BaseEntity, IAuditable
     public bool RequireGrounding { get; set; }
     public string? VoiceId { get; set; }
 
+    /// <summary>
+    /// Words the speech recogniser should favour for this bot, one per line (see
+    /// <see cref="TranscriptionTerms"/>): its name, the institutions and acronyms people say
+    /// to it. Sent to the voice agent with the room metadata. Empty = no vocabulary.
+    /// </summary>
+    public string TranscriptionVocabulary { get; set; } = string.Empty;
+
     // Spoken by the agent immediately after session start, before the user speaks.
     // Null/empty disables the greeting (bot waits silently). Sent to the agent via
     // RoomMetadata and played with session.say() in apps/agent/.../agent.py.
@@ -106,6 +113,8 @@ public class Bot : BaseEntity, IAuditable
         if (request.SimilarityThreshold.HasValue) SimilarityThreshold = request.SimilarityThreshold.Value;
         if (request.RequireGrounding is not null) RequireGrounding = request.RequireGrounding.Value;
         if (request.VoiceId is not null) VoiceId = request.VoiceId.Length == 0 ? null : request.VoiceId;
+        if (request.TranscriptionVocabulary is not null)
+            TranscriptionVocabulary = TranscriptionTerms.Normalize(request.TranscriptionVocabulary);
         if (request.GreetingMessage is not null)
             GreetingMessage = string.IsNullOrWhiteSpace(request.GreetingMessage)
                 ? null
