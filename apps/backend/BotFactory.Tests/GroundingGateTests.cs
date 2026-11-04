@@ -52,6 +52,31 @@ public class GroundingGateTests
     }
 
     [Fact]
+    public void PhoneSaidDigitByDigit_IsCheckedLikeAnyPhone()
+    {
+        // Voice-friendly answers write the number in words; it is still a datum.
+        var spoken = "El teléfono general es el ocho, cero, nueve; cinco, dos, tres; cero, cuatro, cero, cuatro.";
+
+        var supported = Gate("{\"telefono\":\"809-523-0404\"}");
+        Assert.Equal(spoken, Run(supported, spoken));
+        Assert.Empty(supported.Blocked);
+
+        var invented = Gate("{\"telefono\":\"809-539-5419\"}");
+        Run(invented, spoken);
+        Assert.Equal("phone", Assert.Single(invented.Blocked).Kind);
+    }
+
+    [Fact]
+    public void FewDigitWords_AreNotAPhone()
+    {
+        // "la línea asterisco, cuatro, seis, dos" or "dos o tres días" are not phones.
+        var gate = Gate("Línea *462.");
+        Assert.Equal("Llame a la línea asterisco, cuatro, seis, dos en dos o tres días.",
+            Run(gate, "Llame a la línea asterisco, cuatro, seis, dos en dos o tres días."));
+        Assert.Empty(gate.Blocked);
+    }
+
+    [Fact]
     public void ContactLine_KeepsSupportedItems_DropsOnlyTheInventedOne()
     {
         var gate = Gate("Consulado en Miami: +1 305-358-3220, despacho@consulado.gob.do");

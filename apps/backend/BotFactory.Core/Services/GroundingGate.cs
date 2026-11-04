@@ -184,6 +184,14 @@ public sealed class GroundingEvidence
         @"(?<![\w*])\+?\d[\d \-().]{5,22}\d(?!\d)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    // A phone said digit by digit, as voice-friendly answers write it:
+    // "ocho, cero, nueve; cinco, dos, tres; cero, cuatro, cero, cuatro".
+    private const string DigitWord = "cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve";
+
+    private static readonly Regex SpokenDigitsRe = new(
+        @"\b(?:" + DigitWord + @")(?:[\s,;]+(?:" + DigitWord + @")){6,}\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     private static readonly Regex StarCodeRe = new(
         @"(?<![\w*])\*\d{3,5}(?!\d)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -300,6 +308,16 @@ public sealed class GroundingEvidence
                 issues.Add(("phone", m.Value.Trim()));
         }
 
+        foreach (Match m in SpokenDigitsRe.Matches(text))
+        {
+            if (Covered(m))
+                continue;
+            Cover(m);
+            var digits = SpokenDigits(m.Value);
+            if (!PhoneSupported(digits))
+                issues.Add(("phone", m.Value.Trim()));
+        }
+
         foreach (Match m in MoneyDigitsRe.Matches(text))
         {
             if (Covered(m))
@@ -387,6 +405,24 @@ public sealed class GroundingEvidence
         }
 
         return Text.Contains(url, StringComparison.Ordinal);
+    }
+
+    private static string SpokenDigits(string words)
+    {
+        var sb = new StringBuilder();
+        foreach (var w in Regex.Split(words.ToLowerInvariant(), @"[\s,;]+"))
+        {
+            var d = w switch
+            {
+                "cero" => '0', "uno" => '1', "dos" => '2', "tres" => '3', "cuatro" => '4',
+                "cinco" => '5', "seis" => '6', "siete" => '7', "ocho" => '8', "nueve" => '9',
+                _ => '\0',
+            };
+            if (d != '\0')
+                sb.Append(d);
+        }
+
+        return sb.ToString();
     }
 
     private static string TrimUrl(string raw) => raw.TrimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}', '\'', '"', '»');
