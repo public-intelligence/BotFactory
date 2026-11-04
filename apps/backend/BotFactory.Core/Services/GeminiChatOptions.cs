@@ -35,20 +35,9 @@ public class GeminiChatOptions
 
     /// <summary>
     /// Wait before the single retry of a Gemini call that failed transiently (5xx,
-    /// timeout, network). A 429 waits twice as long, or as long as the provider asked when it
-    /// said (see <see cref="QuotaRetryMaxWaitMilliseconds"/>). 0 retries immediately.
+    /// timeout, network). A 429 (spent quota) is never retried. 0 retries immediately.
     /// </summary>
     public int RetryDelayMilliseconds { get; set; } = 1500;
-
-    /// <summary>
-    /// The longest wait a 429 that says how long to wait is worth retrying for. A per-minute
-    /// quota asks for tens of seconds (the window has to empty), which no visitor will sit
-    /// through and a retry a few seconds later cannot beat: such a turn fails at once, with a
-    /// clear message, and the call that would have been rejected is not made. A short wait
-    /// (a burst limit) is still retried, once, after the time the provider asked for.
-    /// A 429 that does not say how long keeps the plain retry.
-    /// </summary>
-    public int QuotaRetryMaxWaitMilliseconds { get; set; } = 5000;
 
     /// <summary>
     /// Sampling temperature. Lower is more focused and less prone to topic drift

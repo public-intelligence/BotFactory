@@ -768,14 +768,22 @@ public class LiveKitChatTurnTests
         "{\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\",\"details\":["
         + "{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"" + retryDelay + "\"}]}}";
 
-    [Fact]
-    public async Task ChatTurn_QuotaThatAsksForALongWait_IsNotRetried_AndTellsTheVisitorToWait()
+    [Theory]
+    [InlineData("57s")]
+    [InlineData("2s")]
+    [InlineData("0s")]
+    [InlineData(null)]
+    public async Task ChatTurn_QuotaError_IsNeverRetried_WhateverWaitItAsksFor(string? retryDelay)
     {
-        // Observed under load: Google asked for 57 s, the retry 3 s later failed the same way
-        // and the visitor read «Lo siento, no pude procesar eso». Now the doomed retry is not
-        // made and the answer says what is happening.
+        // Observed under load: Google asked for 57 s, the retry 3 s later failed the same
+        // way, and so did all ten retries seen, whatever wait they were given (0 s, 1 s, 5 s…):
+        // the quota window does not empty in the seconds a retry can wait. The retry only added
+        // seconds before the visitor read anything. The turn fails at once and says what is happening.
+        var body = retryDelay is null
+            ? """{"error":{"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded"}}"""
+            : QuotaBody(retryDelay);
         var handler = new ScriptedGeminiHandler();
-        handler.EnqueueError(HttpStatusCode.TooManyRequests, QuotaBody("57s"));
+        handler.EnqueueError(HttpStatusCode.TooManyRequests, body);
         handler.Enqueue(TextStream("No debe usarse."));
 
         var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_NOT_FOR_QUOTA");
@@ -791,6 +799,17 @@ public class LiveKitChatTurnTests
 
         var assistant = (await MessagesOfAsync(app, convId))[^1];
         Assert.Equal(ProviderErrorClassifier.UserMessageBusy, assistant.Content);
+    }
+
+    [Fact]
+    public async Task ChatTurn_QuotaError_RecordsTheWaitGoogleAskedFor()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.TooManyRequests, QuotaBody("57s"));
+
+        var (app, convId) = await AppWithConversationAsync(handler);
+        using var _ = app;
+        await PostTurnAsync(app, convId, "Hola");
 
         // The wait Google asked for is on the telemetry event, for whoever looks at the feed.
         var llmError = Assert.Single(await TelemetryOfAsync(app, convId, "llm_error"));
@@ -798,40 +817,6 @@ public class LiveKitChatTurnTests
         Assert.Equal("gemini_quota_exceeded", data.RootElement.GetProperty("errorCode").GetString());
         Assert.Equal(57, data.RootElement.GetProperty("retryAfterSeconds").GetInt32());
         Assert.Contains("57", llmError.Summary!, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ChatTurn_QuotaThatAsksForAShortWait_IsRetriedOnce_AfterThatWait()
-    {
-        // A burst limit clears in a moment: worth one retry, after the time Google asked for.
-        var handler = new ScriptedGeminiHandler();
-        handler.EnqueueError(HttpStatusCode.TooManyRequests, QuotaBody("0.2s"));
-        handler.Enqueue(TextStream("Respuesta tras la espera."));
-
-        var (app, convId) = await AppWithConversationAsync(handler);
-        using var _ = app;
-        var sse = await PostTurnAsync(app, convId, "Hola");
-
-        Assert.Equal(2, handler.RequestBodies.Count);
-        Assert.Contains("Respuesta tras la espera.", sse, StringComparison.Ordinal);
-        Assert.DoesNotContain("event: provider_error", sse, StringComparison.Ordinal);
-        var retry = Assert.Single(await TelemetryOfAsync(app, convId, "llm_retry"));
-        Assert.Contains("asks to wait", retry.Summary!, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ChatTurn_QuotaThatDoesNotSayHowLongToWait_KeepsThePlainRetry()
-    {
-        var handler = new ScriptedGeminiHandler();
-        handler.EnqueueError(HttpStatusCode.TooManyRequests, """{"error":{"status":"RESOURCE_EXHAUSTED"}}""");
-        handler.Enqueue(TextStream("Respuesta en el segundo intento."));
-
-        var (app, convId) = await AppWithConversationAsync(handler);
-        using var _ = app;
-        var sse = await PostTurnAsync(app, convId, "Hola");
-
-        Assert.Equal(2, handler.RequestBodies.Count);
-        Assert.Contains("Respuesta en el segundo intento.", sse, StringComparison.Ordinal);
     }
 
     [Fact]

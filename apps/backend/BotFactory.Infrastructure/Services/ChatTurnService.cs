@@ -364,7 +364,7 @@ public sealed class ChatTurnService : IChatTurnService
                         geminiCallOpen = false;
                         passUsage = null;
 
-                        var delayMs = RetryDelayMs(ex);
+                        var delayMs = RetryDelayMs();
                         _logger.LogWarning(
                             ex,
                             "Gemini call failed transiently; retrying once in {DelayMs} ms (conversation {ConversationId})",
@@ -919,22 +919,22 @@ public sealed class ChatTurnService : IChatTurnService
     }
 
     /// <summary>
-    /// A failure worth one more try: rate limit, server error, the call's own time
-    /// limit or a dropped connection. A 400/401/403 would fail the same way again,
-    /// and a cancellation from the caller (barge-in) is not a failure.
+    /// A failure worth one more try: server error, the call's own time limit or a
+    /// dropped connection. A 400/401/403 would fail the same way again, and a
+    /// cancellation from the caller (barge-in) is not a failure. A 429 is not retried
+    /// either: it means a quota is spent, and the quota window does not empty in the
+    /// seconds a retry could wait (in a load test every one of ten retries failed too,
+    /// each adding seconds to the visitor's wait). The turn fails at once, with a clear
+    /// message, and the call that would have been rejected is not made.
     /// </summary>
-    private bool IsTransientProviderFailure(Exception ex, CancellationToken cancellationToken)
+    private static bool IsTransientProviderFailure(Exception ex, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
             return false;
 
         return ex switch
         {
-            // A 429 that says how long to wait is retried only when the wait is short: a
-            // per-minute quota asks for tens of seconds, and retrying sooner repeats the error.
-            ProviderServiceException { StatusCode: 429, RetryAfter: { } wait } =>
-                wait <= TimeSpan.FromMilliseconds(Math.Max(0, _chatOptions.Value.QuotaRetryMaxWaitMilliseconds)),
-            ProviderServiceException pse => pse.StatusCode is 429 or 500 or 502 or 503 or 504,
+            ProviderServiceException pse => pse.StatusCode is 500 or 502 or 503 or 504,
             TimeoutException => true,
             OperationCanceledException => true, // HttpClient's own timeout
             HttpRequestException => true,
@@ -943,18 +943,7 @@ public sealed class ChatTurnService : IChatTurnService
         };
     }
 
-    private int RetryDelayMs(Exception ex)
-    {
-        var baseDelay = Math.Max(0, _chatOptions.Value.RetryDelayMilliseconds);
-        return ex switch
-        {
-            // The provider said how long: wait that long (never less than the plain delay).
-            ProviderServiceException { StatusCode: 429, RetryAfter: { } wait } =>
-                Math.Max(baseDelay, (int)Math.Ceiling(wait.TotalMilliseconds)),
-            ProviderServiceException { StatusCode: 429 } => baseDelay * 2,
-            _ => baseDelay,
-        };
-    }
+    private int RetryDelayMs() => Math.Max(0, _chatOptions.Value.RetryDelayMilliseconds);
 
     private static string DescribeFailure(Exception ex) => ex switch
     {
