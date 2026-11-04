@@ -648,7 +648,11 @@ public sealed class ChatTurnService : IChatTurnService
 
             if (buffer.Length == 0 || string.IsNullOrWhiteSpace(buffer.ToString()))
             {
-                var fallback = _chatOptions.Value.FallbackMessage;
+                // A spent quota gets its own words (what is happening, what to do) instead of
+                // the generic «no pude procesar eso»; the same text is spoken in a voice call.
+                var fallback = errInfo?.ErrorCode == ProviderErrorClassifier.CodeGeminiQuotaExceeded
+                    ? errInfo.UserMessage
+                    : _chatOptions.Value.FallbackMessage;
                 buffer.Clear();
                 buffer.Append(fallback);
                 try
@@ -663,11 +667,17 @@ public sealed class ChatTurnService : IChatTurnService
 
             provider = "gemini-fallback";
 
-            var summary = errInfo?.OperatorMessage
-                ?? $"failed after {toolInvokes} tool call(s)";
+            var retryAfterSeconds = (ex as ProviderServiceException)?.RetryAfter is { } asked
+                ? (int?)Math.Ceiling(asked.TotalSeconds)
+                : null;
+            var summary = errInfo is null
+                ? $"failed after {toolInvokes} tool call(s)"
+                : retryAfterSeconds is { } secs
+                    ? $"{errInfo.OperatorMessage} (Google pide esperar {secs} s)"
+                    : errInfo.OperatorMessage;
 
             JsonElement? errorData = errInfo is not null
-                ? JsonSerializer.SerializeToElement(new { errorCode = errInfo.ErrorCode })
+                ? JsonSerializer.SerializeToElement(new { errorCode = errInfo.ErrorCode, retryAfterSeconds })
                 : null;
 
             await _telemetry.EmitAsync(new TelemetryEmit(
@@ -913,13 +923,17 @@ public sealed class ChatTurnService : IChatTurnService
     /// limit or a dropped connection. A 400/401/403 would fail the same way again,
     /// and a cancellation from the caller (barge-in) is not a failure.
     /// </summary>
-    private static bool IsTransientProviderFailure(Exception ex, CancellationToken cancellationToken)
+    private bool IsTransientProviderFailure(Exception ex, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
             return false;
 
         return ex switch
         {
+            // A 429 that says how long to wait is retried only when the wait is short: a
+            // per-minute quota asks for tens of seconds, and retrying sooner repeats the error.
+            ProviderServiceException { StatusCode: 429, RetryAfter: { } wait } =>
+                wait <= TimeSpan.FromMilliseconds(Math.Max(0, _chatOptions.Value.QuotaRetryMaxWaitMilliseconds)),
             ProviderServiceException pse => pse.StatusCode is 429 or 500 or 502 or 503 or 504,
             TimeoutException => true,
             OperationCanceledException => true, // HttpClient's own timeout
@@ -932,12 +946,20 @@ public sealed class ChatTurnService : IChatTurnService
     private int RetryDelayMs(Exception ex)
     {
         var baseDelay = Math.Max(0, _chatOptions.Value.RetryDelayMilliseconds);
-        return ex is ProviderServiceException { StatusCode: 429 } ? baseDelay * 2 : baseDelay;
+        return ex switch
+        {
+            // The provider said how long: wait that long (never less than the plain delay).
+            ProviderServiceException { StatusCode: 429, RetryAfter: { } wait } =>
+                Math.Max(baseDelay, (int)Math.Ceiling(wait.TotalMilliseconds)),
+            ProviderServiceException { StatusCode: 429 } => baseDelay * 2,
+            _ => baseDelay,
+        };
     }
 
     private static string DescribeFailure(Exception ex) => ex switch
     {
-        ProviderServiceException pse => $"Gemini HTTP {pse.StatusCode?.ToString() ?? "?"} ({pse.Info.ErrorCode})",
+        ProviderServiceException pse => $"Gemini HTTP {pse.StatusCode?.ToString() ?? "?"} ({pse.Info.ErrorCode})"
+            + (pse.RetryAfter is { } wait ? $", asks to wait {wait.TotalSeconds:0.#} s" : string.Empty),
         TimeoutException => "Gemini timeout",
         OperationCanceledException => "Gemini timeout",
         _ => $"{ex.GetType().Name}",
