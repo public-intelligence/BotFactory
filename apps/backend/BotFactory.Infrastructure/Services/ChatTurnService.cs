@@ -111,6 +111,8 @@ public sealed class ChatTurnService : IChatTurnService
         var extraContents = new List<GeminiExtraContent>();
         var maxToolInvokes = Math.Max(0, _chatOptions.Value.MaxToolIterations);
         var toolInvokes = 0;
+        var toolCapReached = false;
+        var continued = false;
         // The current user question. It must remain in `contents` on EVERY
         // Gemini pass this turn — including the post-tool answer pass — or the
         // model loses the question and answers the previous topic (observed as
@@ -217,66 +219,123 @@ public sealed class ChatTurnService : IChatTurnService
 
         try
         {
+            // Tool policy for the next Gemini call: the model decides (AUTO) unless the
+            // turn needs a text-only answer — after the tool budget ran out, or to
+            // continue an answer cut by the output limit — which forbids tools (NONE).
+            var toolChoice = ToolChoice.Auto;
+
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                GeminiFunctionCall? pendingCall = null;
+                var calls = new List<GeminiFunctionCall>();
+                var passText = new StringBuilder();
+                string? finishReason = null;
                 var geminiSw = Stopwatch.StartNew();
                 int? geminiFirstDeltaMs = null;
-                passUsage = null;
-                geminiCallOpen = true;
 
-                await foreach (var ev in _geminiChat.StreamAsync(
-                                   systemInstruction,
-                                   history,
-                                   extraContents,
-                                   currentUserText,
-                                   cancellationToken))
+                // One retry for a transient failure (429, 5xx, timeout, network drop),
+                // and only while this call has streamed no text: retrying after that
+                // would repeat words the user already received.
+                for (var attempt = 1; ; attempt++)
                 {
-                    switch (ev)
+                    passUsage = null;
+                    geminiCallOpen = true;
+                    calls.Clear();
+                    finishReason = null;
+
+                    try
                     {
-                        case GeminiTextDelta d:
-                            if (string.IsNullOrEmpty(d.Text))
-                                continue;
-
-                            var safe = d.Text.Replace("\r\n", " ", StringComparison.Ordinal)
-                                .Replace('\n', ' ')
-                                .Replace('\r', ' ');
-                            geminiFirstDeltaMs ??= (int)geminiSw.ElapsedMilliseconds;
-                            if (!firstTokenEmitted)
+                        // The whole stream is read, not just up to the first function
+                        // call: the model may ask for several tools in one answer, and
+                        // the usage and finish reason close the stream.
+                        await foreach (var ev in _geminiChat.StreamAsync(
+                                           systemInstruction,
+                                           history,
+                                           extraContents,
+                                           currentUserText,
+                                           cancellationToken,
+                                           toolChoice))
+                        {
+                            switch (ev)
                             {
-                                firstTokenEmitted = true;
-                                ttftMs = (int)sw.ElapsedMilliseconds;
-                                await _telemetry.EmitAsync(new TelemetryEmit(
-                                    "llm_first_token",
-                                    EventSource.Backend,
-                                    BotId: conv.BotId,
-                                    ConversationId: conv.Id,
-                                    UserId: conv.UserId,
-                                    TurnId: request.TurnId,
-                                    Stage: "llm",
-                                    LatencyMs: ttftMs,
-                                    Provider: provider,
-                                    Summary: $"after {toolInvokes} tool call(s)"),
-                                    cancellationToken);
+                                case GeminiTextDelta d:
+                                    if (string.IsNullOrEmpty(d.Text))
+                                        continue;
+
+                                    var safe = d.Text.Replace("\r\n", " ", StringComparison.Ordinal)
+                                        .Replace('\n', ' ')
+                                        .Replace('\r', ' ');
+                                    geminiFirstDeltaMs ??= (int)geminiSw.ElapsedMilliseconds;
+                                    if (!firstTokenEmitted)
+                                    {
+                                        firstTokenEmitted = true;
+                                        ttftMs = (int)sw.ElapsedMilliseconds;
+                                        await _telemetry.EmitAsync(new TelemetryEmit(
+                                            "llm_first_token",
+                                            EventSource.Backend,
+                                            BotId: conv.BotId,
+                                            ConversationId: conv.Id,
+                                            UserId: conv.UserId,
+                                            TurnId: request.TurnId,
+                                            Stage: "llm",
+                                            LatencyMs: ttftMs,
+                                            Provider: provider,
+                                            Summary: $"after {toolInvokes} tool call(s)"),
+                                            cancellationToken);
+                                    }
+
+                                    passText.Append(safe);
+                                    buffer.Append(safe);
+                                    await onDelta(safe, cancellationToken);
+                                    break;
+
+                                case GeminiFunctionCall fc:
+                                    calls.Add(fc);
+                                    break;
+
+                                case GeminiUsage u:
+                                    passUsage = u;
+                                    break;
+
+                                case GeminiFinish f:
+                                    finishReason = f.Reason;
+                                    break;
                             }
+                        }
 
-                            buffer.Append(safe);
-                            await onDelta(safe, cancellationToken);
-                            break;
-
-                        case GeminiFunctionCall fc:
-                            pendingCall = fc;
-                            break;
-
-                        case GeminiUsage u:
-                            passUsage = u;
-                            break;
-                    }
-
-                    if (pendingCall is not null)
                         break;
+                    }
+                    catch (Exception ex) when (attempt == 1
+                                               && passText.Length == 0
+                                               && IsTransientProviderFailure(ex, cancellationToken))
+                    {
+                        // Nothing billable to record for the failed attempt.
+                        geminiCallOpen = false;
+                        passUsage = null;
+
+                        var delayMs = RetryDelayMs(ex);
+                        _logger.LogWarning(
+                            ex,
+                            "Gemini call failed transiently; retrying once in {DelayMs} ms (conversation {ConversationId})",
+                            delayMs,
+                            conv.Id);
+                        await EmitBestEffortAsync(new TelemetryEmit(
+                            "llm_retry",
+                            EventSource.Backend,
+                            BotId: conv.BotId,
+                            ConversationId: conv.Id,
+                            UserId: conv.UserId,
+                            TurnId: request.TurnId,
+                            Stage: "llm",
+                            Provider: "gemini",
+                            Summary: $"{DescribeFailure(ex)}; retrying in {delayMs} ms"));
+
+                        if (delayMs > 0)
+                            await Task.Delay(delayMs, cancellationToken);
+                        geminiSw.Restart();
+                        geminiFirstDeltaMs = null;
+                    }
                 }
 
                 geminiSw.Stop();
@@ -299,120 +358,97 @@ public sealed class ChatTurnService : IChatTurnService
                         },
                 });
 
-                if (pendingCall is null)
-                    break;
-
-                if (toolInvokes >= maxToolInvokes)
+                // A text answer ends the turn. So does any answer to a pass that forbade
+                // tools: a model that still asks for one gets nothing more, which also
+                // keeps the loop finite.
+                if (calls.Count == 0 || toolChoice == ToolChoice.None)
                 {
-                    _logger.LogWarning(
-                        "KB tool loop cap reached ({Max}) for conversation {ConversationId}",
-                        maxToolInvokes,
-                        conv.Id);
-
-                    var capFallback = _chatOptions.Value.FallbackMessage;
-                    if (buffer.Length == 0)
+                    if (string.Equals(finishReason, "MAX_TOKENS", StringComparison.Ordinal)
+                        && passText.Length > 0)
                     {
-                        buffer.Append(capFallback);
-                        try
+                        if (!continued)
                         {
-                            await onDelta(capFallback, cancellationToken);
+                            // Cut at the output limit, possibly in the middle of a phone
+                            // number or a link: what was streamed stays, and one more pass
+                            // finishes it. A half datum is a wrong datum.
+                            continued = true;
+                            _logger.LogWarning(
+                                "Answer cut at the output limit for conversation {ConversationId}; asking Gemini to continue",
+                                conv.Id);
+                            await EmitBestEffortAsync(new TelemetryEmit(
+                                "llm_truncated",
+                                EventSource.Backend,
+                                BotId: conv.BotId,
+                                ConversationId: conv.Id,
+                                UserId: conv.UserId,
+                                TurnId: request.TurnId,
+                                Stage: "llm",
+                                Provider: "gemini",
+                                Summary: $"cut at the output limit after {passText.Length} chars; continuing"));
+
+                            extraContents.Add(new GeminiExtraContent("model", [new { text = passText.ToString() }]));
+                            extraContents.Add(new GeminiExtraContent("user", [new { text = ContinuationNote }]));
+                            toolChoice = ToolChoice.None;
+                            continue;
                         }
-                        catch
-                        {
-                            /* best-effort */
-                        }
+
+                        _logger.LogWarning(
+                            "Answer still cut at the output limit after one continuation for conversation {ConversationId}",
+                            conv.Id);
+                        await EmitBestEffortAsync(new TelemetryEmit(
+                            "llm_truncated",
+                            EventSource.Backend,
+                            BotId: conv.BotId,
+                            ConversationId: conv.Id,
+                            UserId: conv.UserId,
+                            TurnId: request.TurnId,
+                            Stage: "llm",
+                            Provider: "gemini",
+                            Summary: "still cut after one continuation"));
                     }
 
-                    provider = "gemini-fallback";
                     break;
                 }
 
-                toolInvokes++;
+                // Every call of this answer runs now, within the turn's budget. They run
+                // one after another: the handlers share this request's DbContext.
+                var remaining = Math.Max(0, maxToolInvokes - toolInvokes);
+                var toRun = calls.Take(remaining).ToList();
+                var notRun = calls.Skip(toRun.Count).Select(c => c.Name).ToList();
+                var modelParts = new List<object>();
+                var userParts = new List<object>();
+                var allKbEmpty = toRun.Count > 0;
 
-                var callContent =
-                    "{\"name\":"
-                    + JsonSerializer.Serialize(pendingCall.Name)
-                    + ",\"args\":"
-                    + pendingCall.Args.GetRawText()
-                    + "}";
-
-                _db.Messages.Add(new Message
+                foreach (var call in toRun)
                 {
-                    ConversationId = conv.Id,
-                    Role = MessageRole.Tool,
-                    Content = callContent,
-                    Provider = ChatMessageProviders.GeminiTool,
-                });
-                await _db.SaveChangesAsync(cancellationToken);
+                    toolInvokes++;
+                    var outcome = await ExecuteToolCallAsync(call, bot, conv, request.TurnId, segments, cancellationToken);
+                    if (!outcome.KbWithoutResults)
+                        allKbEmpty = false;
 
-                var handler = _toolRegistry.Get(pendingCall.Name)
-                    ?? throw new InvalidOperationException(
-                        $"No handler registered for tool '{pendingCall.Name}'.");
-
-                var toolSw = Stopwatch.StartNew();
-                var invocation = await handler.ExecuteAsync(
-                    pendingCall.Args,
-                    new ToolContext(bot, conv, request.TurnId),
-                    cancellationToken);
-                var toolLatencyMs = (int)toolSw.ElapsedMilliseconds;
-
-                segments.Add(new
-                {
-                    type = "tool",
-                    name = pendingCall.Name,
-                    ms = toolLatencyMs,
-                });
-
-                var responseContent = JsonSerializer.Serialize(invocation.ResponsePayload);
-
-                _db.Messages.Add(new Message
-                {
-                    ConversationId = conv.Id,
-                    Role = MessageRole.Tool,
-                    Content = responseContent,
-                    Provider = ChatMessageProviders.GeminiTool,
-                });
-                await _db.SaveChangesAsync(cancellationToken);
-
-                if (invocation.Telemetry is { } toolTelemetry)
-                {
-                    var hasDisplay = invocation.Display is not null;
-                    var displayPayload = hasDisplay
-                        ? new
-                        {
-                            name = handler.Name,
-                            items = invocation.Display!
-                                .Select(d => new { id = d.Id, label = d.Label, body = d.Body })
-                                .ToArray(),
-                        }
-                        : null;
-
-                    var mergedData = new
+                    modelParts.Add(new { functionCall = new { name = call.Name, args = call.Args } });
+                    userParts.Add(new
                     {
-                        display = displayPayload,
-                        payload = toolTelemetry.Data,
-                    };
-
-                    await _telemetry.EmitAsync(new TelemetryEmit(
-                        toolTelemetry.EventName,
-                        EventSource.Backend,
-                        BotId: conv.BotId,
-                        ConversationId: conv.Id,
-                        UserId: conv.UserId,
-                        TurnId: request.TurnId,
-                        Stage: toolTelemetry.Stage,
-                        LatencyMs: toolLatencyMs,
-                        Provider: ChatMessageProviders.GeminiTool,
-                        Summary: invocation.Summary,
-                        Data: JsonSerializer.SerializeToElement(mergedData)),
-                        cancellationToken);
+                        functionResponse = new
+                        {
+                            name = call.Name,
+                            // The requested args ride alongside the result so the
+                            // model grounds its answer on what was actually asked
+                            // (observed: correct tool results answered off-topic
+                            // when the result stood alone).
+                            response = new
+                            {
+                                solicitud = call.Args,
+                                resultado = outcome.Payload,
+                            },
+                        },
+                    });
                 }
 
-                // Grounded-only is a KB-retrieval behavior: an external tool
-                // returning an empty result must NOT trigger the KB fallback.
-                if (invocation.NoUsableResults
-                    && pendingCall.Name == KbSearchToolHandler.ToolName
-                    && !string.IsNullOrEmpty(bot.GroundedOnlyMessage))
+                // Grounded-only is a KB-retrieval behavior: it ends the turn only when
+                // everything consulted was the knowledge base and it found nothing. An
+                // external tool returning an empty result must NOT trigger it.
+                if (allKbEmpty && notRun.Count == 0 && !string.IsNullOrEmpty(bot.GroundedOnlyMessage))
                 {
                     var msg = bot.GroundedOnlyMessage!;
                     buffer.Clear();
@@ -430,32 +466,37 @@ public sealed class ChatTurnService : IChatTurnService
                     break;
                 }
 
-                var modelParts = new object[]
+                if (toRun.Count > 0)
                 {
-                    new { functionCall = new { name = pendingCall.Name, args = pendingCall.Args } },
-                };
-                var userParts = new object[]
-                {
-                    new
-                    {
-                        functionResponse = new
-                        {
-                            name = pendingCall.Name,
-                            // The requested args ride alongside the result so the
-                            // model grounds its answer on what was actually asked
-                            // (observed: correct tool results answered off-topic
-                            // when the result stood alone).
-                            response = new
-                            {
-                                solicitud = pendingCall.Args,
-                                resultado = invocation.ResponsePayload,
-                            },
-                        },
-                    },
-                };
+                    extraContents.Add(new GeminiExtraContent("model", modelParts.ToArray()));
+                    extraContents.Add(new GeminiExtraContent("user", userParts.ToArray()));
+                }
 
-                extraContents.Add(new GeminiExtraContent("model", modelParts));
-                extraContents.Add(new GeminiExtraContent("user", userParts));
+                if (notRun.Count > 0)
+                {
+                    // Budget exhausted: instead of failing the whole turn, one last pass
+                    // with tools forbidden answers with what was gathered and says what
+                    // could not be consulted.
+                    toolCapReached = true;
+                    _logger.LogWarning(
+                        "Tool cap reached ({Max}) for conversation {ConversationId}; answering with what was gathered",
+                        maxToolInvokes,
+                        conv.Id);
+                    await EmitBestEffortAsync(new TelemetryEmit(
+                        "tool_cap_reached",
+                        EventSource.Backend,
+                        BotId: conv.BotId,
+                        ConversationId: conv.Id,
+                        UserId: conv.UserId,
+                        TurnId: request.TurnId,
+                        Stage: "llm",
+                        Provider: "gemini",
+                        Summary: $"cap={maxToolInvokes}; not consulted: {string.Join(", ", notRun)}"));
+
+                    AppendNoteToLastUserContent(extraContents, CapNote(notRun));
+                    toolChoice = ToolChoice.None;
+                }
+
                 // Keep currentUserText for the next pass. BuildStreamRequest
                 // places it before extraContents, so the answer pass sends
                 // [history, user:question, model:functionCall, user:functionResponse]
@@ -577,6 +618,8 @@ public sealed class ChatTurnService : IChatTurnService
                     toolCount = toolInvokes,
                     charCount = buffer.Length,
                     tokens = usageTotals.ToData(),
+                    toolCapReached,
+                    continued,
                     segments,
                 });
 
@@ -619,6 +662,228 @@ public sealed class ChatTurnService : IChatTurnService
             segments,
             providerError,
             wasCancelled);
+    }
+
+    // Notes the platform adds to the conversation for one pass. They speak to the
+    // model, in the bot's language, and never reach the user.
+    private const string ContinuationNote =
+        "[Nota de la plataforma] Tu respuesta anterior se cortó por longitud. "
+        + "Continúa exactamente donde quedó, sin repetir nada de lo ya escrito y sin saludar de nuevo.";
+
+    private static string CapNote(IReadOnlyCollection<string> notConsulted) =>
+        "[Nota de la plataforma] Se alcanzó el límite de consultas de este turno. "
+        + "No pidas más herramientas. Responde ahora solo con la información ya obtenida, "
+        + "di con claridad qué parte de la pregunta no pudiste consultar y no inventes datos para completarla."
+        + (notConsulted.Count > 0 ? $" Quedó sin consultar: {string.Join(", ", notConsulted.Distinct())}." : string.Empty);
+
+    /// <summary>
+    /// Adds a text part to the trailing user content (the function responses) so the
+    /// contents keep alternating model/user; a separate user turn would break that.
+    /// </summary>
+    private static void AppendNoteToLastUserContent(List<GeminiExtraContent> extraContents, string note)
+    {
+        if (extraContents.Count > 0 && extraContents[^1].Role == "user")
+        {
+            var last = extraContents[^1];
+            extraContents[^1] = last with { Parts = [.. last.Parts, new { text = note }] };
+            return;
+        }
+
+        extraContents.Add(new GeminiExtraContent("user", [new { text = note }]));
+    }
+
+    /// <summary>
+    /// A failure worth one more try: rate limit, server error, the call's own time
+    /// limit or a dropped connection. A 400/401/403 would fail the same way again,
+    /// and a cancellation from the caller (barge-in) is not a failure.
+    /// </summary>
+    private static bool IsTransientProviderFailure(Exception ex, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return false;
+
+        return ex switch
+        {
+            ProviderServiceException pse => pse.StatusCode is 429 or 500 or 502 or 503 or 504,
+            TimeoutException => true,
+            OperationCanceledException => true, // HttpClient's own timeout
+            HttpRequestException => true,
+            IOException => true,
+            _ => false,
+        };
+    }
+
+    private int RetryDelayMs(Exception ex)
+    {
+        var baseDelay = Math.Max(0, _chatOptions.Value.RetryDelayMilliseconds);
+        return ex is ProviderServiceException { StatusCode: 429 } ? baseDelay * 2 : baseDelay;
+    }
+
+    private static string DescribeFailure(Exception ex) => ex switch
+    {
+        ProviderServiceException pse => $"Gemini HTTP {pse.StatusCode?.ToString() ?? "?"} ({pse.Info.ErrorCode})",
+        TimeoutException => "Gemini timeout",
+        OperationCanceledException => "Gemini timeout",
+        _ => $"{ex.GetType().Name}",
+    };
+
+    private async Task EmitBestEffortAsync(TelemetryEmit emit)
+    {
+        try
+        {
+            await _telemetry.EmitAsync(emit, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not record telemetry event {EventName}", emit.EventName);
+        }
+    }
+
+    private sealed record ToolCallOutcome(object Payload, bool KbWithoutResults);
+
+    /// <summary>
+    /// Runs one function call and records it (call and result as Tool messages, the
+    /// tool's telemetry, a waterfall segment). Never throws for a tool problem: a tool
+    /// the bot does not have, or one that fails, comes back as an error result the model
+    /// reads — and by the bot's rules it then says it could not consult that.
+    /// </summary>
+    private async Task<ToolCallOutcome> ExecuteToolCallAsync(
+        GeminiFunctionCall call,
+        Bot bot,
+        Conversation conv,
+        Guid? turnId,
+        List<object> segments,
+        CancellationToken cancellationToken)
+    {
+        var callContent =
+            "{\"name\":"
+            + JsonSerializer.Serialize(call.Name)
+            + ",\"args\":"
+            + call.Args.GetRawText()
+            + "}";
+
+        _db.Messages.Add(new Message
+        {
+            ConversationId = conv.Id,
+            Role = MessageRole.Tool,
+            Content = callContent,
+            Provider = ChatMessageProviders.GeminiTool,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var toolSw = Stopwatch.StartNew();
+        var handler = _toolRegistry.Get(call.Name);
+        ToolInvocation? invocation = null;
+        object payload;
+
+        if (handler is null)
+        {
+            // Observed: the model asked for "places", a tool this bot does not have.
+            _logger.LogWarning(
+                "Model requested unknown tool {Tool} for conversation {ConversationId}",
+                call.Name,
+                conv.Id);
+            payload = new
+            {
+                error = "herramienta_inexistente",
+                detalle = $"No existe una herramienta llamada '{call.Name}'. No la vuelvas a pedir: "
+                    + "usa solo las herramientas disponibles o di que no puedes consultar ese dato.",
+            };
+            await EmitBestEffortAsync(new TelemetryEmit(
+                "tool_call_unknown",
+                EventSource.Backend,
+                BotId: conv.BotId,
+                ConversationId: conv.Id,
+                UserId: conv.UserId,
+                TurnId: turnId,
+                Stage: "tool",
+                Provider: ChatMessageProviders.GeminiTool,
+                Summary: $"unknown tool '{call.Name}'"));
+        }
+        else
+        {
+            try
+            {
+                invocation = await handler.ExecuteAsync(
+                    call.Args,
+                    new ToolContext(bot, conv, turnId),
+                    cancellationToken);
+                payload = invocation.ResponsePayload;
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "Tool {Tool} failed for conversation {ConversationId}", call.Name, conv.Id);
+                payload = new
+                {
+                    error = "fallo_de_herramienta",
+                    detalle = "La consulta falló. Di que no pudiste consultarlo en este momento; no inventes el resultado.",
+                };
+                await EmitBestEffortAsync(new TelemetryEmit(
+                    "tool_call_failed",
+                    EventSource.Backend,
+                    BotId: conv.BotId,
+                    ConversationId: conv.Id,
+                    UserId: conv.UserId,
+                    TurnId: turnId,
+                    Stage: "tool",
+                    Provider: ChatMessageProviders.GeminiTool,
+                    Summary: $"{call.Name} threw {ex.GetType().Name}"));
+            }
+        }
+
+        var toolLatencyMs = (int)toolSw.ElapsedMilliseconds;
+        segments.Add(new
+        {
+            type = "tool",
+            name = call.Name,
+            ms = toolLatencyMs,
+        });
+
+        _db.Messages.Add(new Message
+        {
+            ConversationId = conv.Id,
+            Role = MessageRole.Tool,
+            Content = JsonSerializer.Serialize(payload),
+            Provider = ChatMessageProviders.GeminiTool,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+
+        if (invocation?.Telemetry is { } toolTelemetry)
+        {
+            var displayPayload = invocation.Display is not null
+                ? new
+                {
+                    name = handler!.Name,
+                    items = invocation.Display
+                        .Select(d => new { id = d.Id, label = d.Label, body = d.Body })
+                        .ToArray(),
+                }
+                : null;
+
+            var mergedData = new
+            {
+                display = displayPayload,
+                payload = toolTelemetry.Data,
+            };
+
+            await _telemetry.EmitAsync(new TelemetryEmit(
+                toolTelemetry.EventName,
+                EventSource.Backend,
+                BotId: conv.BotId,
+                ConversationId: conv.Id,
+                UserId: conv.UserId,
+                TurnId: turnId,
+                Stage: toolTelemetry.Stage,
+                LatencyMs: toolLatencyMs,
+                Provider: ChatMessageProviders.GeminiTool,
+                Summary: invocation.Summary,
+                Data: JsonSerializer.SerializeToElement(mergedData)),
+                cancellationToken);
+        }
+
+        return new ToolCallOutcome(
+            payload,
+            invocation is { NoUsableResults: true } && call.Name == KbSearchToolHandler.ToolName);
     }
 
     /// <summary>Sum of the tokens Gemini reported across every call of one turn.</summary>

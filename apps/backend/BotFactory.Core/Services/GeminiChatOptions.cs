@@ -8,14 +8,26 @@ public class GeminiChatOptions
 {
     public string ChatModel { get; set; } = "gemini-2.5-flash";
 
-    public int HttpTimeoutSeconds { get; set; } = 30;
+    /// <summary>
+    /// Limit for one Gemini call, from the request until the last streamed chunk.
+    /// A call that runs out of time is retried once (see <see cref="RetryDelayMilliseconds"/>).
+    /// </summary>
+    public int HttpTimeoutSeconds { get; set; } = 60;
 
     public string FallbackMessage { get; set; } = "Lo siento, no pude procesar eso.";
 
     /// <summary>
-    /// Maximum number of KB tool invocations per voice turn (each invocation may require an extra stream pass).
+    /// Maximum number of tool executions per turn, counting every call of a pass in
+    /// which the model asked for several at once. When the budget runs out the turn
+    /// does not fail: one last pass, with tools forbidden, answers with what was gathered.
     /// </summary>
-    public int MaxToolIterations { get; set; } = 2;
+    public int MaxToolIterations { get; set; } = 6;
+
+    /// <summary>
+    /// Wait before the single retry of a Gemini call that failed transiently (5xx,
+    /// timeout, network). A 429 waits twice as long. 0 retries immediately.
+    /// </summary>
+    public int RetryDelayMilliseconds { get; set; } = 1500;
 
     /// <summary>
     /// Sampling temperature. Lower is more focused and less prone to topic drift

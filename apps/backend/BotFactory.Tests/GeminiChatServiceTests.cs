@@ -83,13 +83,67 @@ public class GeminiChatServiceTests
         public IToolHandler? Get(string name) => null;
     }
 
-    private static GeminiChatService CreateService(HttpMessageHandler handler, bool withTools = true) =>
+    private static GeminiChatService CreateService(
+        HttpMessageHandler handler,
+        bool withTools = true,
+        GeminiChatOptions? options = null) =>
         new(
             new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) },
             new StubAppSettings(),
-            Options.Create(new GeminiChatOptions()),
+            Options.Create(options ?? new GeminiChatOptions()),
             NullLogger<GeminiChatService>.Instance,
             new StubToolRegistry(withTools));
+
+    /// <summary>A response body that never sends anything: a stalled Gemini stream.</summary>
+    private sealed class StallingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private static async Task<string> CaptureRequestBodyAsync(ToolChoice toolChoice)
+    {
+        string? body = null;
+        var handler = new CapturingHandler
+        {
+            Respond = req =>
+            {
+                body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]}}]}\n\n",
+                        Encoding.UTF8,
+                        "text/event-stream"),
+                };
+            },
+        };
+
+        var svc = CreateService(handler);
+        await foreach (var _ in svc.StreamAsync("s", [], [], "u", CancellationToken.None, toolChoice))
+        {
+        }
+
+        return body!;
+    }
 
     private static async Task<List<GeminiStreamEvent>> CollectStreamAsync(
         GeminiChatService svc,
@@ -430,6 +484,121 @@ public class GeminiChatServiceTests
         Assert.Equal(2, usages.Count);
         Assert.Equal(5, usages[^1].OutputTokens);
         Assert.Equal(80, usages[^1].CachedTokens);
+    }
+
+    [Fact]
+    public void ParseStreamChunkEvents_FinishReason_IsYieldedAfterTheParts()
+    {
+        var json = """{"candidates":[{"content":{"parts":[{"text":"info@pgr.gob"}]},"finishReason":"MAX_TOKENS"}]}""";
+        using var doc = JsonDocument.Parse(json);
+        var list = GeminiChatService.ParseStreamChunkEvents(doc.RootElement).ToList();
+
+        Assert.Equal(2, list.Count);
+        Assert.IsType<GeminiTextDelta>(list[0]);
+        Assert.Equal("MAX_TOKENS", Assert.IsType<GeminiFinish>(list[1]).Reason);
+    }
+
+    [Fact]
+    public void ParseStreamChunkEvents_FinishReasonWithoutParts_IsStillYielded()
+    {
+        var json = """{"candidates":[{"finishReason":"STOP"}]}""";
+        using var doc = JsonDocument.Parse(json);
+        var list = GeminiChatService.ParseStreamChunkEvents(doc.RootElement).ToList();
+
+        Assert.Equal("STOP", Assert.IsType<GeminiFinish>(Assert.Single(list)).Reason);
+    }
+
+    [Fact]
+    public void ParseStreamChunkEvents_SeveralFunctionCallsInOneAnswer_AreAllYieldedInOrder()
+    {
+        // Gemini answers a multi-question message with several calls at once.
+        var json = """{"candidates":[{"content":{"parts":[{"functionCall":{"name":"medicamentos","args":{"q":"losartan"}}},{"functionCall":{"name":"lugares","args":{"q":"consulado"}}},{"functionCall":{"name":"proximo_feriado","args":{}}}]}}]}""";
+        using var doc = JsonDocument.Parse(json);
+        var calls = GeminiChatService.ParseStreamChunkEvents(doc.RootElement).OfType<GeminiFunctionCall>().ToList();
+
+        Assert.Equal(["medicamentos", "lugares", "proximo_feriado"], calls.Select(c => c.Name));
+    }
+
+    [Theory]
+    [InlineData(ToolChoice.Auto, "AUTO")]
+    [InlineData(ToolChoice.None, "NONE")]
+    [InlineData(ToolChoice.Required, "ANY")]
+    public async Task StreamAsync_ToolChoice_IsSentAsFunctionCallingMode(ToolChoice toolChoice, string expectedMode)
+    {
+        var body = await CaptureRequestBodyAsync(toolChoice);
+        using var doc = JsonDocument.Parse(body);
+
+        var mode = doc.RootElement.GetProperty("toolConfig").GetProperty("functionCallingConfig").GetProperty("mode").GetString();
+        Assert.Equal(expectedMode, mode);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests, 429)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, 503)]
+    [InlineData(HttpStatusCode.BadRequest, 400)]
+    public async Task StreamAsync_NonSuccess_CarriesTheHttpStatus(HttpStatusCode status, int expected)
+    {
+        var handler = new CapturingHandler
+        {
+            Respond = _ => new HttpResponseMessage(status)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            },
+        };
+
+        var svc = CreateService(handler);
+        var ex = await Assert.ThrowsAsync<ProviderServiceException>(async () =>
+        {
+            await foreach (var _ in svc.StreamAsync("s", [], [], "u", CancellationToken.None))
+            {
+            }
+        });
+        Assert.Equal(expected, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task StreamAsync_StalledStream_ThrowsTimeoutException_NotAHang()
+    {
+        // HttpClient.Timeout stops guarding once headers arrive; the call's own limit
+        // must cover the body too, and surface as a timeout (retryable), not a barge-in.
+        var handler = new CapturingHandler
+        {
+            Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new StallingStream()),
+            },
+        };
+
+        var svc = CreateService(handler, options: new GeminiChatOptions { HttpTimeoutSeconds = 1 });
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAsync<TimeoutException>(async () =>
+        {
+            await foreach (var _ in svc.StreamAsync("s", [], [], "u", CancellationToken.None))
+            {
+            }
+        });
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"took {sw.Elapsed}");
+    }
+
+    [Fact]
+    public async Task StreamAsync_CallerCancellation_StaysACancellation()
+    {
+        var handler = new CapturingHandler
+        {
+            Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new StallingStream()),
+            },
+        };
+
+        var svc = CreateService(handler, options: new GeminiChatOptions { HttpTimeoutSeconds = 30 });
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var _ in svc.StreamAsync("s", [], [], "u", cts.Token))
+            {
+            }
+        });
     }
 
     [Fact]
