@@ -103,6 +103,7 @@ public class BotService : IBotService
         bot.RequireGrounding = updated.RequireGrounding;
         bot.VoiceId = updated.VoiceId;
         bot.TranscriptionVocabulary = updated.TranscriptionVocabulary;
+        bot.PronunciationRules = updated.PronunciationRules;
         bot.VadActivationThreshold = updated.VadActivationThreshold;
         bot.VadMinSpeechDurationMs = updated.VadMinSpeechDurationMs;
         bot.InterruptionMinDurationMs = updated.InterruptionMinDurationMs;

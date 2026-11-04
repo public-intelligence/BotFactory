@@ -201,6 +201,11 @@ namespace BotFactory.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("PronunciationRules")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("PublicId")
                         .IsRequired()
                         .HasMaxLength(32)

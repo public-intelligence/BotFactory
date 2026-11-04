@@ -2,6 +2,7 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { MAX_TERMS, checkVocabulary, vocabularyProblem } from './transcription-vocabulary';
+import { MAX_RULES, checkRules, rulesProblem } from './pronunciation-rules';
 import { DropdownSearchComponent } from '@public-intelligence/ui-core';
 import { BotEditStore } from './bot-edit.store';
 import { InfoTooltip } from '../../shared/info-tooltip';
@@ -292,6 +293,31 @@ import { toast } from 'ngx-sonner';
         }
       </section>
 
+      <!-- Pronunciación -->
+      <section>
+        <h3 class="mb-4 inline-flex items-center text-base font-semibold text-neutral-900">
+          Pronunciación
+          <app-info-tooltip
+            text="Cómo debe decir la voz lo que el texto escribe, por ejemplo una sigla que la voz lee como una palabra. Una regla por línea: «escrito → dicho». Se aplica a palabras completas, sin distinguir mayúsculas, y solo al audio (la respuesta hablada y el saludo): el chat y el texto guardado no cambian."
+          />
+        </h3>
+        <textarea
+          rows="5"
+          [formControl]="form.controls.pronunciationRules"
+          [disabled]="!voiceEnabled()"
+          placeholder="ABC → a, be, ce"
+          class="w-full rounded-lg border bg-white px-3 py-2 font-mono text-sm text-neutral-900 focus:outline-none"
+          [class]="pronunciationBorder()"
+        ></textarea>
+        @if (pronunciationProblem(); as problem) {
+          <p class="mt-1 text-xs text-red-600">{{ problem }}</p>
+        } @else {
+          <p class="mt-1 text-xs text-neutral-400">
+            Una regla por línea: escrito → dicho. {{ pronunciationCheck().rules.length }} de {{ maxRules }}.
+          </p>
+        }
+      </section>
+
       <!-- Opciones de Comportamiento -->
       <section>
         <h3 class="mb-4 text-base font-semibold text-neutral-900">
@@ -404,7 +430,7 @@ import { toast } from 'ngx-sonner';
         <button
           type="button"
           (click)="onSave()"
-          [disabled]="saving() || !voiceEnabled() || !!vocabularyProblem()"
+          [disabled]="saving() || !voiceEnabled() || !!vocabularyProblem() || !!pronunciationProblem()"
           class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
         >
           {{ saving() ? 'Guardando...' : 'Guardar' }}
@@ -441,7 +467,18 @@ export class BotEditVoz {
     interruptionMinDurationMs: [1000],
     interruptionMinWords: [1],
     transcriptionVocabulary: [''],
+    pronunciationRules: [''],
   });
+
+  protected readonly maxRules = MAX_RULES;
+  private readonly pronunciationText = toSignal(this.form.controls.pronunciationRules.valueChanges, {
+    initialValue: this.form.controls.pronunciationRules.value,
+  });
+  protected readonly pronunciationCheck = computed(() => checkRules(this.pronunciationText()));
+  protected readonly pronunciationProblem = computed(() => rulesProblem(this.pronunciationCheck()));
+  protected readonly pronunciationBorder = computed(() =>
+    this.pronunciationProblem() ? 'border-red-400' : 'border-neutral-200 focus:border-neutral-400',
+  );
 
   protected readonly maxTerms = MAX_TERMS;
   private readonly vocabularyText = toSignal(this.form.controls.transcriptionVocabulary.valueChanges, {
@@ -506,6 +543,7 @@ export class BotEditVoz {
           interruptionMinDurationMs: bot.interruptionMinDurationMs,
           interruptionMinWords: bot.interruptionMinWords,
           transcriptionVocabulary: bot.transcriptionVocabulary ?? '',
+          pronunciationRules: bot.pronunciationRules ?? '',
         });
       }
     });
@@ -602,6 +640,7 @@ export class BotEditVoz {
         interruptionMinDurationMs: bot.interruptionMinDurationMs,
         interruptionMinWords: bot.interruptionMinWords,
         transcriptionVocabulary: bot.transcriptionVocabulary ?? '',
+        pronunciationRules: bot.pronunciationRules ?? '',
       });
     }
   }
@@ -629,6 +668,7 @@ export class BotEditVoz {
           interruptionMinDurationMs: values.interruptionMinDurationMs,
           interruptionMinWords: values.interruptionMinWords,
           transcriptionVocabulary: values.transcriptionVocabulary,
+          pronunciationRules: values.pronunciationRules,
         },
       });
       this.store.bot.set(updated);

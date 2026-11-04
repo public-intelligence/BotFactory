@@ -17,6 +17,7 @@ export interface UpdateBotRequest {
   masterPrompt?: (string | null);
   maxUtteranceMs?: (number | null);
   noSpeechTimeoutMs?: (number | null);
+  pronunciationRules?: (string | null);
   publicRequestsPerMinute?: (number | null);
   publishedState?: (string | null);
   requireGrounding?: (boolean | null);

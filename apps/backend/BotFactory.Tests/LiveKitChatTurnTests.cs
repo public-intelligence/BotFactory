@@ -638,7 +638,8 @@ public class LiveKitChatTurnTests
         ScriptedGeminiHandler handler,
         int maxToolIterations = 6,
         string fallbackMessage = "FALLBACK_P2",
-        int firstByteTimeoutSeconds = 10)
+        int firstByteTimeoutSeconds = 10,
+        Action<Bot>? configureBot = null)
     {
         var app = WithTurnGemini(
             _factory,
@@ -649,7 +650,58 @@ public class LiveKitChatTurnTests
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
         var tenant = scope.ServiceProvider.GetRequiredService<ITenantContextSetter>();
-        return (app, await SeedConversationAsync(db, tenant));
+        return (app, await SeedConversationAsync(db, tenant, configureBot));
+    }
+
+    // The words of the spoken answer: what the agent receives on the stream, frames joined.
+    private static string SpokenText(string sse) =>
+        string.Concat(sse.Split('\n').Where(l => l.StartsWith("data: ", StringComparison.Ordinal)).Select(l => l[6..]));
+
+    [Fact]
+    public async Task ChatTurn_ThePronunciationRulesApplyToWhatIsSpoken_NotToWhatIsStored()
+    {
+        // «ABC» is written; the voice should say «a, be, ce». The chat (the stored message) keeps ABC.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(TextStream("Puede ir al Punto ABC mañana, o llamar al ABC."));
+
+        var (app, convId) = await AppWithConversationAsync(
+            handler, configureBot: b => b.PronunciationRules = "ABC → a, be, ce");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("Puede ir al Punto a, be, ce mañana, o llamar al a, be, ce.", SpokenText(sse));
+        Assert.Equal("Puede ir al Punto ABC mañana, o llamar al ABC.", (await MessagesOfAsync(app, convId))[^1].Content);
+    }
+
+    [Fact]
+    public async Task ChatTurn_WithoutPronunciationRules_TheSpokenTextIsUntouched()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(TextStream("Puede ir al Punto ABC mañana."));
+
+        var (app, convId) = await AppWithConversationAsync(handler);
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("Puede ir al Punto ABC mañana.", SpokenText(sse));
+    }
+
+    [Fact]
+    public async Task ChatTurn_ARuleSplitAcrossTheStreamedChunks_IsStillApplied()
+    {
+        // Gemini streams in pieces; «Punto ABC» arrives cut in the middle.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Vaya al Punto A\"}]}}]}\n\n"
+            + "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"BC hoy.\"}]},\"finishReason\":\"STOP\"}]}\n\n");
+
+        var (app, convId) = await AppWithConversationAsync(
+            handler, configureBot: b => b.PronunciationRules = "Punto ABC → punto a be ce");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("Vaya al punto a be ce hoy.", SpokenText(sse));
+        Assert.Equal("Vaya al Punto ABC hoy.", (await MessagesOfAsync(app, convId))[^1].Content);
     }
 
     [Fact]

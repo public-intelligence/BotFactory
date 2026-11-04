@@ -57,7 +57,9 @@ public record UpdateBotRequest(
     // «Respaldo obligatorio»: only answer from the bot's sources; null = no change.
     bool? RequireGrounding = null,
     // Words the speech recogniser should favour, one per line; "" clears; null = no change.
-    string? TranscriptionVocabulary = null);
+    string? TranscriptionVocabulary = null,
+    // How the voice should say what the text writes, «written → spoken» per line; "" clears; null = no change.
+    string? PronunciationRules = null);
 
 public record BotResponse(
     int Id,
@@ -100,7 +102,8 @@ public record BotResponse(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     bool RequireGrounding = false,
-    string TranscriptionVocabulary = "");
+    string TranscriptionVocabulary = "",
+    string PronunciationRules = "");
 
 /// <summary>
 /// What the public chat page needs to render a bot, and nothing of how it is configured:

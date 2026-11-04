@@ -129,6 +129,12 @@ public static class BotEndpoints
             if (vocabularyError is not null)
                 return Results.BadRequest(new { error = vocabularyError });
 
+            var pronunciationError = request.PronunciationRules is null
+                ? null
+                : PronunciationDictionary.Validate(request.PronunciationRules);
+            if (pronunciationError is not null)
+                return Results.BadRequest(new { error = pronunciationError });
+
             existing.ApplyUpdate(request);
             BotUpdateHelper.ApplyGreetingFromJson(doc.RootElement, existing);
 
@@ -284,7 +290,8 @@ public static class BotEndpoints
         BlobKey.VersionOf(bot.LogoBlobKey),
         bot.CreatedAt, bot.UpdatedAt,
         bot.RequireGrounding,
-        bot.TranscriptionVocabulary);
+        bot.TranscriptionVocabulary,
+        bot.PronunciationRules);
 
     internal static bool ResolveSessionMode(string? mode, Bot bot) => mode?.Trim().ToLowerInvariant() switch
     {

@@ -48,6 +48,7 @@ public static class LiveKitEndpoints
             HttpContext ctx,
             BotFactoryDbContext db,
             IChatTurnService chatTurn,
+            ILogger<Program> logger,
             CancellationToken cancellationToken) =>
         {
             var conv = await db.Conversations
@@ -111,6 +112,22 @@ public static class LiveKitEndpoints
             // Strip URLs/phones from spoken SSE only; ChatTurnService still
             // persists the full text for chat + the voice contact card.
             var spokenSanitizer = new VoiceSpokenSanitizer();
+            // Then the bot's pronunciation rules («ABC» → «a, be, ce»): the voice says what the
+            // text writes the way the bot asks, and only the voice: the stored text is untouched.
+            var pronunciationRules = PronunciationDictionary.Parse(
+                (await db.Bots.IgnoreQueryFilters().AsNoTracking()
+                    .Where(b => b.Id == conv.BotId)
+                    .Select(b => b.PronunciationRules)
+                    .FirstOrDefaultAsync(cancellationToken)));
+            var spokenPronunciation = new SpokenPronunciation(pronunciationRules);
+            IEnumerable<string> Spoken(IEnumerable<string> chunks)
+            {
+                foreach (var chunk in chunks)
+                {
+                    foreach (var pronounced in spokenPronunciation.Push(chunk))
+                        yield return pronounced;
+                }
+            }
             try
             {
                 async Task WriteSpokenDeltaAsync(string spoken, CancellationToken ct)
@@ -137,13 +154,22 @@ public static class LiveKitEndpoints
                         // The chat keeps line breaks (lists, paragraphs); speech gets one
                         // line, exactly as before: a raw '\n' would also end the SSE frame.
                         var oneLine = delta.Replace('\n', ' ');
-                        foreach (var spoken in spokenSanitizer.Push(oneLine))
+                        foreach (var spoken in Spoken(spokenSanitizer.Push(oneLine)))
                             await WriteSpokenDeltaAsync(spoken, ct);
                     },
                     cancellationToken);
 
-                foreach (var spoken in spokenSanitizer.Flush())
+                foreach (var spoken in Spoken(spokenSanitizer.Flush()))
                     await WriteSpokenDeltaAsync(spoken, cancellationToken);
+                foreach (var spoken in spokenPronunciation.Flush())
+                    await WriteSpokenDeltaAsync(spoken, cancellationToken);
+
+                if (spokenPronunciation.Replacements > 0)
+                {
+                    logger.LogInformation(
+                        "Pronunciation rules applied conversation={ConversationId} turn={TurnId} rules={Rules} replacements={Replacements}",
+                        request.ConversationId, request.TurnId, pronunciationRules.Count, spokenPronunciation.Replacements);
+                }
 
                 providerError = result.ProviderError;
             }

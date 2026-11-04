@@ -24,6 +24,7 @@ export interface BotResponse {
   maxUtteranceMs: number;
   noSpeechTimeoutMs: number;
   organizationId: string;
+  pronunciationRules?: string;
   publicId: string;
   publicRequestsPerMinute: (number | null);
   publishedState: string;
