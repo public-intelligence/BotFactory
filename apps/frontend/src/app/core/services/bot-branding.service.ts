@@ -1,12 +1,12 @@
 import { Injectable, inject } from '@angular/core';
 import { Api } from '../../api/api';
-import type { BotResponse } from '../../api/models/bot-response';
+import type { PublicBotResponse } from '../../api/models/public-bot-response';
 
 @Injectable({ providedIn: 'root' })
 export class BotBrandingService {
   private readonly api = inject(Api);
 
-  resolveLogoUrl(bot: BotResponse, slug: string): string | null {
+  resolveLogoUrl(bot: PublicBotResponse, slug: string): string | null {
     if (!bot.hasCustomLogo) return null;
     const base = `${this.api.rootUrl}/api/bots/by-slug/${encodeURIComponent(slug)}/logo/download`;
     // logoVersion changes on every upload, so a URL carrying it is safe for the

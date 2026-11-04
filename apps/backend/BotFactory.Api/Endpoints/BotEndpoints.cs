@@ -50,16 +50,18 @@ public static class BotEndpoints
         // Anonymous on purpose: the chat page must render (or 404) before
         // prompting unauthenticated users to log in. Publishers (and admins)
         // can preview their drafts from the public URL for testing; everyone
-        // else only sees bots in `published` state.
+        // else only sees bots in `published` state. It returns only what the page
+        // renders (PublicBotResponse): the prompt and the rest of the configuration
+        // used to be readable here by anyone.
         group.MapGet("/by-slug/{slug}", async (string slug, IBotService botService, ITenantContext tenant) =>
         {
             var publishedOnly = !tenant.CanViewDraftBots();
             var bot = await botService.GetBySlugAsync(slug, publishedOnly);
-            return bot is null ? Results.NotFound() : Results.Ok(ToResponse(bot));
+            return bot is null ? Results.NotFound() : Results.Ok(ToPublicResponse(bot));
         })
         .AllowAnonymous()
         .WithName("GetBotBySlug")
-        .Produces<BotResponse>()
+        .Produces<PublicBotResponse>()
         .Produces(404);
 
         group.MapPost("/", async (CreateBotRequest request, IBotService botService, ILogger<Bot> logger) =>
@@ -240,6 +242,18 @@ public static class BotEndpoints
         .Produces<ChatSessionResponse>()
         .Produces(404);
     }
+
+    public static PublicBotResponse ToPublicResponse(Bot bot) => new(
+        bot.Id, bot.BotName, bot.UrlSlug, bot.PublishedState, bot.PublicId,
+        bot.GreetingMessage,
+        bot.EnableChat, bot.EnableVoice, bot.EnableTts, bot.EnableTypingSound, bot.EnableBargeIn,
+        bot.TopK, bot.SilenceEndMs, bot.MaxUtteranceMs,
+        bot.RequiresAuthentication,
+        bot.ThinkingSoundBlobKey is not null,
+        BlobKey.VersionOf(bot.ThinkingSoundBlobKey),
+        bot.ThemeBackground, bot.ThemePrimary, bot.ThemeAccent,
+        bot.LogoBlobKey is not null,
+        BlobKey.VersionOf(bot.LogoBlobKey));
 
     public static BotResponse ToResponse(Bot bot) => new(
         bot.Id, bot.OrganizationId, bot.BotName, bot.UrlSlug,

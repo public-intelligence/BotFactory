@@ -98,3 +98,34 @@ public record BotResponse(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     bool RequireGrounding = false);
+
+/// <summary>
+/// What the public chat page needs to render a bot, and nothing of how it is configured:
+/// no prompt, no grounded-only message, no retrieval threshold, no embed origins, no limits,
+/// no organization. Served anonymously by <c>GET /api/bots/by-slug/{slug}</c>; the full
+/// <see cref="BotResponse"/> stays behind the admin's sign-in. Property names match
+/// <see cref="BotResponse"/> so clients reading the old payload keep working.
+/// </summary>
+public record PublicBotResponse(
+    int Id,
+    string BotName,
+    string UrlSlug,
+    string PublishedState,
+    string PublicId,
+    string? GreetingMessage,
+    bool EnableChat,
+    bool EnableVoice,
+    bool EnableTts,
+    bool EnableTypingSound,
+    bool EnableBargeIn,
+    int TopK,
+    int SilenceEndMs,
+    int MaxUtteranceMs,
+    bool RequiresAuthentication,
+    bool HasCustomThinkingSound,
+    string? ThinkingSoundVersion,
+    string? ThemeBackground,
+    string? ThemePrimary,
+    string? ThemeAccent,
+    bool HasCustomLogo,
+    string? LogoVersion);

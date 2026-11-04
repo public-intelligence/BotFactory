@@ -7,13 +7,13 @@ import { filter, map } from 'rxjs/operators';
 import { StrictHttpResponse } from '../../strict-http-response';
 import { RequestBuilder } from '../../request-builder';
 
-import { BotResponse } from '../../models/bot-response';
+import { PublicBotResponse } from '../../models/public-bot-response';
 
 export interface GetBotBySlug$Params {
   slug: string;
 }
 
-export function getBotBySlug(http: HttpClient, rootUrl: string, params: GetBotBySlug$Params, context?: HttpContext): Observable<StrictHttpResponse<BotResponse>> {
+export function getBotBySlug(http: HttpClient, rootUrl: string, params: GetBotBySlug$Params, context?: HttpContext): Observable<StrictHttpResponse<PublicBotResponse>> {
   const rb = new RequestBuilder(rootUrl, getBotBySlug.PATH, 'get');
   if (params) {
     rb.path('slug', params.slug, {});
@@ -24,7 +24,7 @@ export function getBotBySlug(http: HttpClient, rootUrl: string, params: GetBotBy
   ).pipe(
     filter((r: any): r is HttpResponse<any> => r instanceof HttpResponse),
     map((r: HttpResponse<any>) => {
-      return r as StrictHttpResponse<BotResponse>;
+      return r as StrictHttpResponse<PublicBotResponse>;
     })
   );
 }

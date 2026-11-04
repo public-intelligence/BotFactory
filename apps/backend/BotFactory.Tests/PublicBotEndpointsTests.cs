@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using BotFactory.Core;
 using BotFactory.Core.DTOs;
 using BotFactory.Core.Entities;
@@ -17,6 +18,42 @@ public class PublicBotEndpointsTests
     private readonly BotFactoryWebApplicationFactory _factory;
 
     public PublicBotEndpointsTests(BotFactoryWebApplicationFactory factory) => _factory = factory;
+
+    [Fact]
+    public async Task BySlug_Anonymous_ReturnsWhatThePageRenders_NeverThePromptOrTheConfiguration()
+    {
+        var bot = await PublicBotTestHelper.SeedPublishedPublicBotAsync(_factory, b =>
+        {
+            b.MasterPrompt = "SECRET_PROMPT_RULES";
+            b.GroundedOnlyMessage = "SECRET_GROUNDED";
+            b.AllowedEmbedOrigins = "https://secret.example.com";
+            b.PublicRequestsPerMinute = 30;
+            b.GreetingMessage = "Hola, soy el bot.";
+        });
+
+        var anon = _factory.CreateClient();
+        var response = await anon.GetAsync($"/api/bots/by-slug/{bot.UrlSlug}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("SECRET_", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret.example.com", json, StringComparison.Ordinal);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        foreach (var hidden in new[]
+                 {
+                     "masterPrompt", "groundedOnlyMessage", "similarityThreshold", "allowedEmbedOrigins",
+                     "publicRequestsPerMinute", "organizationId", "requireGrounding", "voiceId",
+                 })
+        {
+            Assert.False(root.TryGetProperty(hidden, out _), $"{hidden} must not be public");
+        }
+
+        Assert.Equal(bot.PublicId, root.GetProperty("publicId").GetString());
+        Assert.Equal("Hola, soy el bot.", root.GetProperty("greetingMessage").GetString());
+        Assert.True(root.GetProperty("enableChat").GetBoolean());
+        Assert.False(root.GetProperty("requiresAuthentication").GetBoolean());
+    }
 
     [Fact]
     public async Task CreatePublicChat_ReturnsTokenAndAnonymousConversation()

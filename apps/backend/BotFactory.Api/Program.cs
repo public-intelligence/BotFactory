@@ -285,7 +285,12 @@ builder.Services.AddScoped<IConversationStreamPublisher, ConversationStreamPubli
 builder.Services.AddScoped<IChatTurnService, ChatTurnService>();
 builder.Services.AddSingleton<IChatTurnRegistry, ChatTurnRegistry>();
 builder.Services.AddScoped<IConversationGreetingService, ConversationGreetingService>();
-builder.Services.AddSignalR();
+// Two invocations at a time per connection on the conversation hub: SendTurn waits
+// for the whole turn, and with the default of one, the CancelTurn sent to stop it
+// queued behind it and arrived after the turn had ended. The turn registry still
+// allows only one turn per connection.
+builder.Services.AddSignalR()
+    .AddHubOptions<ConversationHub>(options => options.MaximumParallelInvocationsPerClient = 2);
 
 // LiveKit
 builder.Services.AddOptions<LiveKitOptions>()
