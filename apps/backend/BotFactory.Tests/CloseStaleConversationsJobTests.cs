@@ -209,4 +209,115 @@ public class CloseStaleConversationsJobTests
         Assert.Equal(ConversationStatus.Closed, updated.Status);
         Assert.Equal(ConversationClosedReasons.Timeout, updated.ClosedReason);
     }
+
+    // ---- Text conversations: a person reads and types, so they get minutes, not 30 seconds. ----
+
+    [Fact]
+    public async Task ExecuteAsync_KeepsTextConversationQuietLongerThanTheVoiceWindow()
+    {
+        // The case seen under load on 2026-11-04: a visitor who takes more than 30 s between
+        // messages found the conversation closed when the sweep ran.
+        var id = await SeedConversationAsync(ConversationChannels.Text, quietFor: TimeSpan.FromMinutes(5));
+
+        await RunJobAsync();
+
+        Assert.Equal(ConversationStatus.Active, (await ReadAsync(id)).Status);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ClosesTextConversationQuietLongerThanTheTextWindow()
+    {
+        var id = await SeedConversationAsync(ConversationChannels.Text, quietFor: TimeSpan.FromMinutes(16));
+
+        await RunJobAsync();
+
+        var updated = await ReadAsync(id);
+        Assert.Equal(ConversationStatus.Closed, updated.Status);
+        Assert.Equal(ConversationClosedReasons.Timeout, updated.ClosedReason);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_KeepsTextConversationWithRecentMessage()
+    {
+        var id = await SeedConversationAsync(
+            ConversationChannels.Text, quietFor: TimeSpan.FromMinutes(40), lastMessageAgo: TimeSpan.FromMinutes(3));
+
+        await RunJobAsync();
+
+        Assert.Equal(ConversationStatus.Active, (await ReadAsync(id)).Status);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_StillClosesVoiceConversationAfterTwiceTheNoSpeechTimeout()
+    {
+        var id = await SeedConversationAsync(ConversationChannels.Voice, quietFor: TimeSpan.FromSeconds(60));
+
+        await RunJobAsync();
+
+        Assert.Equal(ConversationStatus.Closed, (await ReadAsync(id)).Status);
+    }
+
+    private async Task<int> SeedConversationAsync(string channel, TimeSpan quietFor, TimeSpan? lastMessageAgo = null)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContextSetter>();
+        tenant.SetTenant(DbSeeder.SuperAdminOrgId);
+
+        var bot = new Bot
+        {
+            BotName = "Stale Job Channel Bot",
+            UrlSlug = $"stale-ch-{Guid.NewGuid():N}",
+            PublishedState = BotStates.Published,
+            MasterPrompt = "Test",
+            NoSpeechTimeoutMs = 15_000,
+        };
+        db.Bots.Add(bot);
+        await db.SaveChangesAsync();
+
+        var conv = new Conversation
+        {
+            BotId = bot.Id,
+            UserId = "stale-tester",
+            Status = ConversationStatus.Active,
+            Channel = channel,
+        };
+        db.Conversations.Add(conv);
+        await db.SaveChangesAsync();
+
+        var since = DateTime.UtcNow - quietFor;
+        conv.CreatedAt = since;
+        conv.UpdatedAt = since;
+        await db.SaveChangesAsync();
+
+        if (lastMessageAgo is { } ago)
+        {
+            var at = DateTime.UtcNow - ago;
+            db.Messages.Add(new Message
+            {
+                ConversationId = conv.Id,
+                Role = MessageRole.User,
+                Content = "Hola",
+                CreatedAt = at,
+                UpdatedAt = at,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        return conv.Id;
+    }
+
+    private async Task RunJobAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var job = scope.ServiceProvider.GetRequiredService<CloseStaleConversationsJob>();
+        await job.ExecuteAsync();
+    }
+
+    private async Task<Conversation> ReadAsync(int id)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        return await db.Conversations.IgnoreQueryFilters().FirstAsync(c => c.Id == id);
+    }
 }

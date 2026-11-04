@@ -99,6 +99,7 @@ public static class PublicBotEndpoints
                 UserId = anonymousUserId,
                 Status = ConversationStatus.Active,
                 AccessMode = ConversationAccessModes.Public,
+                Channel = ConversationChannels.For(useVoice),
                 Surface = context?.Embedded == true || parentOrigin is not null
                     ? ConversationSurfaces.Iframe
                     : ConversationSurfaces.Direct,
@@ -199,6 +200,14 @@ public static class PublicBotEndpoints
                 return Results.BadRequest(new { error = "Voice is not enabled for this bot." });
             if (!useVoice && !bot.EnableChat)
                 return Results.BadRequest(new { error = "Chat is not enabled for this bot." });
+
+            // The person may come back in the other mode; the idle sweep follows the current one.
+            var resumedChannel = ConversationChannels.For(useVoice);
+            if (conversation.Channel != resumedChannel)
+            {
+                conversation.Channel = resumedChannel;
+                await db.SaveChangesAsync(cancellationToken);
+            }
 
             if (conversation.Status == ConversationStatus.Paused)
             {

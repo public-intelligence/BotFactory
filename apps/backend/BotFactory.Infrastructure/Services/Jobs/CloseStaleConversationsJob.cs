@@ -4,12 +4,14 @@ using BotFactory.Core.Services;
 using BotFactory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace BotFactory.Infrastructure.Services.Jobs;
 
 public class CloseStaleConversationsJob(
     BotFactoryDbContext db,
     IConversationService conversationService,
+    IOptions<ConversationLifecycleOptions> lifecycle,
     ILogger<CloseStaleConversationsJob> logger)
 {
     private const int BatchSize = 100;
@@ -17,6 +19,9 @@ public class CloseStaleConversationsJob(
     public async Task ExecuteAsync(CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
+
+        // Text waits for a person who reads and types; voice keeps twice the bot's no-speech timeout.
+        var textIdle = TimeSpan.FromMinutes(Math.Max(1, lifecycle.Value.TextIdleCloseMinutes));
 
         var activeConversations = await (
             from c in db.Conversations.AsNoTracking().IgnoreQueryFilters()
@@ -26,6 +31,7 @@ public class CloseStaleConversationsJob(
             {
                 c.Id,
                 c.CreatedAt,
+                c.Channel,
                 StaleAfterMs = (long)b.NoSpeechTimeoutMs * 2,
             }).ToListAsync(cancellationToken);
 
@@ -50,7 +56,11 @@ public class CloseStaleConversationsJob(
             if (lastMessageByConversation.TryGetValue(item.Id, out var lastMessageAt) && lastMessageAt > lastActivity)
                 lastActivity = lastMessageAt;
 
-            if (now - lastActivity >= TimeSpan.FromMilliseconds(item.StaleAfterMs))
+            var staleAfter = item.Channel == ConversationChannels.Text
+                ? textIdle
+                : TimeSpan.FromMilliseconds(item.StaleAfterMs);
+
+            if (now - lastActivity >= staleAfter)
                 staleIds.Add(item.Id);
         }
 

@@ -51,6 +51,7 @@ import {
   isIdleAgentClose,
   mapPipelineErrorToMessage,
   mapSessionEndToMessage,
+  isConversationClosedError,
   mapSendTurnError,
   mapSessionPausedToMessage,
   MSG_CONVERSATION_CLOSED,
@@ -1263,7 +1264,44 @@ export class Chat implements OnDestroy {
       await this.stream.sendTurn(text);
       this.error.set(null);
     } catch (err: unknown) {
+      // The server closes a text conversation that sat idle for a while. The person only
+      // wants to keep talking: open a new one behind the scenes and send the message again.
+      if (isConversationClosedError(err) && (await this.startFreshTextConversation())) {
+        try {
+          await this.stream.sendTurn(text);
+          this.error.set(null);
+        } catch (retryErr: unknown) {
+          this.error.set(mapSendTurnError(retryErr));
+        }
+        return;
+      }
       this.error.set(mapSendTurnError(err));
+    }
+  }
+
+  /**
+   * Opens a new text conversation for the same bot after the server closed the old one,
+   * keeping what is already on screen. Returns false when it could not, and the person
+   * then sees the usual «conversación cerrada» message.
+   */
+  private async startFreshTextConversation(): Promise<boolean> {
+    const bot = this.bot();
+    if (!bot) return false;
+    try {
+      const isPublic = this.usePublicSession();
+      const chat = isPublic
+        ? await this.startPublicSession(bot, 'text')
+        : await this.api.invoke(createChat, { id: bot.id, mode: 'text' });
+      this.conversationId.set(chat.conversationId);
+      this.sessionEndedExplicitly.set(false);
+      await this.stream.connect(bot.id, chat.conversationId, {
+        withEvents: this.adminMode(),
+        publicAccessId: isPublic ? bot.publicId : undefined,
+        keepItems: true,
+      });
+      return true;
+    } catch {
+      return false;
     }
   }
 

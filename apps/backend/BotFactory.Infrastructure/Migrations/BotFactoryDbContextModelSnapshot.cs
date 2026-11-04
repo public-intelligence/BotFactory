@@ -342,6 +342,11 @@ namespace BotFactory.Infrastructure.Migrations
                     b.Property<int>("BotId")
                         .HasColumnType("int");
 
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
                     b.Property<DateTime?>("ClosedAt")
                         .HasColumnType("datetime2");
 

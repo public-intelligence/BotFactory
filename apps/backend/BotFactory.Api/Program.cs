@@ -242,6 +242,8 @@ builder.Services.AddScoped<IUrlContentFetcher, UrlContentFetcher>();
 builder.Services.AddHttpClient<GeminiEmbeddingService>();
 builder.Services.AddOptions<GeminiChatOptions>()
     .BindConfiguration("Gemini");
+builder.Services.AddOptions<ConversationLifecycleOptions>()
+    .BindConfiguration(ConversationLifecycleOptions.SectionName);
 builder.Services.AddHttpClient<GeminiChatService>((sp, client) =>
 {
     var opts = sp.GetRequiredService<IOptions<GeminiChatOptions>>();
@@ -492,10 +494,14 @@ api.MapDevAuthEndpoints();
 app.MapLiveKitEndpoints();
 app.MapHub<ConversationHub>("/hubs/conversation").RequireAuthorization();
 
+// Idle conversations stay "active" (and count against the per-bot cap of anonymous
+// sessions) until this sweep closes them, so it runs every few minutes, not hourly.
+var staleSweepMinutes = Math.Clamp(
+    app.Services.GetRequiredService<IOptions<ConversationLifecycleOptions>>().Value.StaleSweepMinutes, 1, 59);
 RecurringJob.AddOrUpdate<CloseStaleConversationsJob>(
     "close-stale-conversations",
     job => job.ExecuteAsync(CancellationToken.None),
-    Cron.Hourly);
+    Cron.MinuteInterval(staleSweepMinutes));
 
 RecurringJob.AddOrUpdate<RefreshUrlKbDocumentsJob>(
     "refresh-url-kb-documents",
