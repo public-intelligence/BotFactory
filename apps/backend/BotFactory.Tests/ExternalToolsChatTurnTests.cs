@@ -96,6 +96,7 @@ public class ExternalToolsChatTurnTests
                 {
                     MaxToolIterations = 2,
                     FallbackMessage = "FALLBACK_EXT",
+                    RetryDelayMilliseconds = 0,
                 }));
 
                 services.RemoveAll<GeminiChatService>();

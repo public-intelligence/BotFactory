@@ -42,6 +42,7 @@ public class ConversationHubTests
                 {
                     MaxToolIterations = 2,
                     FallbackMessage = fallbackMessage,
+                    RetryDelayMilliseconds = 0,
                 }));
 
                 services.RemoveAll<GeminiChatService>();

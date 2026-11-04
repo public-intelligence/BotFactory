@@ -24,6 +24,11 @@ public class TelemetryService : ITelemetryService
         "llm_first_token",
         // Tokens Gemini reported for one call (prompt, cached, output, thoughts).
         "llm_usage",
+        // Turn resilience (retry, answer cut at the output limit, tool budget, unknown tool).
+        "llm_retry",
+        "llm_truncated",
+        "tool_cap_reached",
+        "tool_call_unknown",
         "barge_in",
         "network_degraded",
         "network_recovered",

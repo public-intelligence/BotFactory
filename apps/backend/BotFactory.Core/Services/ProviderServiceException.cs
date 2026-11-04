@@ -7,9 +7,16 @@ public sealed class ProviderServiceException : Exception
 {
     public ProviderErrorInfo Info { get; }
 
-    public ProviderServiceException(ProviderErrorInfo info, string? rawMessage = null)
+    /// <summary>
+    /// HTTP status the provider answered with, when there was one. Lets callers tell
+    /// a transient failure (429, 5xx) from one that retrying cannot fix (400, 401, 403).
+    /// </summary>
+    public int? StatusCode { get; }
+
+    public ProviderServiceException(ProviderErrorInfo info, string? rawMessage = null, int? statusCode = null)
         : base(rawMessage ?? info.OperatorMessage)
     {
         Info = info;
+        StatusCode = statusCode;
     }
 }

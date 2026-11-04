@@ -40,6 +40,12 @@ public sealed record GeminiUsage(
 }
 
 /// <summary>
+/// Why Gemini stopped generating (<c>finishReason</c>): <c>STOP</c> for a normal end,
+/// <c>MAX_TOKENS</c> when the answer hit the output limit and was cut.
+/// </summary>
+public sealed record GeminiFinish(string Reason) : GeminiStreamEvent;
+
+/// <summary>
 /// Extra Gemini API <c>contents</c> turns (e.g. model functionCall + user functionResponse) within a single voice turn.
 /// </summary>
 public sealed record GeminiExtraContent(string Role, object[] Parts);
@@ -78,12 +84,15 @@ public class GeminiChatService
     /// <summary>
     /// Streams assistant output from Gemini (SSE): text deltas and/or function calls.
     /// </summary>
+    /// <param name="toolChoice">Tool-use policy for this call; AUTO unless the turn needs
+    /// a text-only answer (NONE) or a mandatory tool call (ANY).</param>
     public async IAsyncEnumerable<GeminiStreamEvent> StreamAsync(
         string systemInstruction,
         IReadOnlyList<GeminiChatMessage> history,
         IReadOnlyList<GeminiExtraContent> extraContents,
         string? newUserText,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        ToolChoice toolChoice = ToolChoice.Auto)
     {
         var apiKey = await _appSettings.GetDecryptedKeyAsync(ServiceType.Llm)
             ?? throw new InvalidOperationException(
@@ -97,37 +106,55 @@ public class GeminiChatService
             systemInstruction,
             history,
             extraContents,
-            newUserText);
+            newUserText,
+            toolChoice);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = JsonContent.Create(payload, options: WireOptions),
         };
 
-        using var response = await _http.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
+        // HttpClient.Timeout stops guarding once the headers arrive (we read the body as a
+        // stream), so a stream that stalls halfway would hang the turn. This limit covers
+        // the whole call; when it fires the caller gets a TimeoutException it can retry.
+        var timeout = TimeSpan.FromSeconds(Math.Max(1, _options.Value.HttpTimeoutSeconds));
+        using var callCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        callCts.CancelAfter(timeout);
+        var callToken = callCts.Token;
+
+        using var response = await WithinTimeoutAsync(
+            () => _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, callToken),
+            timeout,
             cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
-            var errBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var errBody = await WithinTimeoutAsync(
+                () => response.Content.ReadAsStringAsync(callToken),
+                timeout,
+                cancellationToken);
             var status = (int)response.StatusCode;
             _logger.LogError(
                 "Gemini streamGenerateContent failed status={Status} body={Body}",
                 status,
                 errBody.Length > 2000 ? errBody[..2000] : errBody);
             var info = ProviderErrorClassifier.ClassifyGemini(status, errBody);
-            throw new ProviderServiceException(info, errBody);
+            throw new ProviderServiceException(info, errBody, status);
         }
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = await WithinTimeoutAsync(
+            () => response.Content.ReadAsStreamAsync(callToken),
+            timeout,
+            cancellationToken);
         using var reader = new StreamReader(stream, Encoding.UTF8);
 
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var line = await reader.ReadLineAsync(cancellationToken);
+            var line = await WithinTimeoutAsync(
+                () => reader.ReadLineAsync(callToken).AsTask(),
+                timeout,
+                cancellationToken);
             if (line is null)
                 break;
 
@@ -157,11 +184,33 @@ public class GeminiChatService
         }
     }
 
+    /// <summary>
+    /// Runs one step of the call. A cancellation that did not come from the caller is
+    /// the call's own time limit (or HttpClient's), surfaced as a TimeoutException so
+    /// the turn can tell it apart from a barge-in.
+    /// </summary>
+    private static async Task<T> WithinTimeoutAsync<T>(
+        Func<Task<T>> step,
+        TimeSpan timeout,
+        CancellationToken callerToken)
+    {
+        try
+        {
+            return await step();
+        }
+        catch (OperationCanceledException ex) when (!callerToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Gemini did not answer within {(int)timeout.TotalSeconds}s.", ex);
+        }
+    }
+
     private object BuildStreamRequest(
         string systemInstruction,
         IReadOnlyList<GeminiChatMessage> history,
         IReadOnlyList<GeminiExtraContent> extraContents,
-        string? newUserText)
+        string? newUserText,
+        ToolChoice toolChoice)
     {
         var contents = new List<object>();
         foreach (var m in history)
@@ -210,7 +259,13 @@ public class GeminiChatService
         if (toolsPayload.Length > 0)
         {
             body["tools"] = toolsPayload;
-            body["toolConfig"] = new { functionCallingConfig = new { mode = "AUTO" } };
+            var mode = toolChoice switch
+            {
+                ToolChoice.None => "NONE",
+                ToolChoice.Required => "ANY",
+                _ => "AUTO",
+            };
+            body["toolConfig"] = new { functionCallingConfig = new { mode } };
         }
 
         return body;
@@ -243,10 +298,25 @@ public class GeminiChatService
             yield break;
 
         var candidate = candidates[0];
-        if (!candidate.TryGetProperty("content", out var content))
-            yield break;
+        if (candidate.TryGetProperty("content", out var content)
+            && content.TryGetProperty("parts", out var parts))
+        {
+            foreach (var ev in ParseParts(parts))
+                yield return ev;
+        }
 
-        if (!content.TryGetProperty("parts", out var parts) || parts.GetArrayLength() == 0)
+        // After the parts: the reason belongs to the chunk that closes the answer.
+        if (candidate.TryGetProperty("finishReason", out var finishEl)
+            && finishEl.ValueKind == JsonValueKind.String
+            && finishEl.GetString() is { Length: > 0 } reason)
+        {
+            yield return new GeminiFinish(reason);
+        }
+    }
+
+    private static IEnumerable<GeminiStreamEvent> ParseParts(JsonElement parts)
+    {
+        if (parts.ValueKind != JsonValueKind.Array)
             yield break;
 
         foreach (var part in parts.EnumerateArray())

@@ -40,6 +40,7 @@ public class LiveKitChatTurnTests
                 {
                     MaxToolIterations = maxToolIterations,
                     FallbackMessage = fallbackMessage,
+                    RetryDelayMilliseconds = 0,
                 }));
 
                 services.RemoveAll<GeminiChatService>();
@@ -334,8 +335,11 @@ public class LiveKitChatTurnTests
     }
 
     [Fact]
-    public async Task ChatTurn_ToolLoopCap_StreamsFallbackAfterRepeatedFunctionCalls()
+    public async Task ChatTurn_ModelInsistsOnToolsAfterTheCap_StreamsFallback()
     {
+        // Cap of 1: the first call runs, the second exceeds the budget, so the last
+        // pass forbids tools (NONE). A model that still answers with a function call
+        // gets nothing more: the turn ends, and with no text the fallback is spoken.
         var handler = new SseQueueHandler();
         var fcLine =
             """
@@ -554,6 +558,258 @@ public class LiveKitChatTurnTests
         // The call failed before Gemini counted anything: llm_error covers it, and an
         // llm_usage row with no numbers would only be noise.
         Assert.Empty(await TelemetryOfAsync(app, convId, "llm_usage"));
+    }
+
+    /// <summary>
+    /// Answers each Gemini call from a script of (status, body) and records every
+    /// request body, so a test can drive errors, retries and multi-pass turns.
+    /// </summary>
+    private sealed class ScriptedGeminiHandler : HttpMessageHandler
+    {
+        private readonly Queue<(HttpStatusCode Status, string Body)> _script = new();
+        public List<string> RequestBodies { get; } = [];
+
+        public void Enqueue(string sseBody) => _script.Enqueue((HttpStatusCode.OK, sseBody));
+
+        public void EnqueueError(HttpStatusCode status, string body = "{}") => _script.Enqueue((status, body));
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (!request.RequestUri!.AbsolutePath.Contains("streamGenerateContent", StringComparison.Ordinal))
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+            if (request.Content is not null)
+                RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
+
+            var (status, body) = _script.Count > 0
+                ? _script.Dequeue()
+                : (HttpStatusCode.OK, "data: {\"candidates\":[]}\n\n");
+            return new HttpResponseMessage(status)
+            {
+                Content = new StringContent(
+                    body,
+                    Encoding.UTF8,
+                    status == HttpStatusCode.OK ? "text/event-stream" : "application/json"),
+            };
+        }
+    }
+
+    private static string TextStream(string text, string finishReason = "STOP") =>
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":" + JsonSerializer.Serialize(text)
+        + "}]},\"finishReason\":\"" + finishReason + "\"}]}\n\n";
+
+    private static string CallsStream(params string[] names) =>
+        "data: {\"candidates\":[{\"content\":{\"parts\":["
+        + string.Join(",", names.Select((n, i) =>
+            "{\"functionCall\":{\"name\":\"" + n + "\",\"args\":{\"query\":\"q" + i + "\"}}}"))
+        + "]},\"finishReason\":\"STOP\"}]}\n\n";
+
+    private static string ToolChoiceOf(string requestBody)
+    {
+        using var doc = JsonDocument.Parse(requestBody);
+        return doc.RootElement.GetProperty("toolConfig").GetProperty("functionCallingConfig").GetProperty("mode").GetString()!;
+    }
+
+    private static async Task<List<Message>> MessagesOfAsync(WebApplicationFactory<Program> app, int convId)
+    {
+        using var scope = app.Services.CreateScope();
+        var vdb = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        return await vdb.Messages
+            .IgnoreQueryFilters()
+            .Where(m => m.ConversationId == convId)
+            .OrderBy(m => m.Id)
+            .ToListAsync();
+    }
+
+    private async Task<(WebApplicationFactory<Program> App, int ConvId)> AppWithConversationAsync(
+        ScriptedGeminiHandler handler,
+        int maxToolIterations = 6,
+        string fallbackMessage = "FALLBACK_P2")
+    {
+        var app = WithTurnGemini(_factory, handler, maxToolIterations: maxToolIterations, fallbackMessage: fallbackMessage);
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContextSetter>();
+        return (app, await SeedConversationAsync(db, tenant));
+    }
+
+    [Fact]
+    public async Task ChatTurn_SeveralCallsInOneAnswer_AllRunInOnePass()
+    {
+        // A multi-question message: the model asks for three lookups at once. All three
+        // must run before the next Gemini call (before, only the first one ran and each
+        // question cost a whole extra pass).
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(CallsStream("kb_search", "kb_search", "kb_search"));
+        handler.Enqueue(TextStream("Tres respuestas juntas."));
+
+        var (app, convId) = await AppWithConversationAsync(handler);
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Tres preguntas");
+
+        Assert.Contains("Tres respuestas juntas.", sse, StringComparison.Ordinal);
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Equal(3, CountOccurrences(handler.RequestBodies[1], "\"functionResponse\""));
+
+        var messages = await MessagesOfAsync(app, convId);
+        Assert.Equal(6, messages.Count(m => m.Role == MessageRole.Tool));
+        Assert.Equal("gemini", messages[^1].Provider);
+
+        var completed = Assert.Single(await TelemetryOfAsync(app, convId, "backend_completed"));
+        using var turn = JsonDocument.Parse(completed.Data!);
+        Assert.Equal(3, turn.RootElement.GetProperty("toolCount").GetInt32());
+        Assert.False(turn.RootElement.GetProperty("toolCapReached").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ChatTurn_ToolCapReached_AnswersWithWhatWasGathered_InsteadOfFallback()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(CallsStream("kb_search", "kb_search", "kb_search"));
+        handler.Enqueue(TextStream("Le respondo con lo que pude consultar."));
+
+        var (app, convId) = await AppWithConversationAsync(handler, maxToolIterations: 2, fallbackMessage: "FALLBACK_CAP2");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Tres preguntas");
+
+        Assert.Contains("Le respondo con lo que pude consultar.", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain("FALLBACK_CAP2", sse, StringComparison.Ordinal);
+
+        // Two of the three ran; the last pass forbade tools and told the model why.
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Equal(2, CountOccurrences(handler.RequestBodies[1], "\"functionResponse\""));
+        Assert.Equal("NONE", ToolChoiceOf(handler.RequestBodies[1]));
+        Assert.Contains("límite de consultas", Unescaped(handler.RequestBodies[1]), StringComparison.Ordinal);
+        Assert.Contains("Quedó sin consultar: kb_search", Unescaped(handler.RequestBodies[1]), StringComparison.Ordinal);
+
+        var messages = await MessagesOfAsync(app, convId);
+        Assert.Equal(4, messages.Count(m => m.Role == MessageRole.Tool));
+        Assert.Equal("gemini", messages[^1].Provider);
+        Assert.Single(await TelemetryOfAsync(app, convId, "tool_cap_reached"));
+    }
+
+    [Fact]
+    public async Task ChatTurn_UnknownTool_IsAnsweredAsAFunctionError_NotAFailedTurn()
+    {
+        // Observed in production: the model asked for "places", which the bot lacks,
+        // and the exception ended the turn in the fallback message.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(CallsStream("places"));
+        handler.Enqueue(TextStream("No puedo consultar eso en este momento."));
+
+        var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_UNKNOWN");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "¿Dónde queda?");
+
+        Assert.Contains("No puedo consultar eso en este momento.", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain("FALLBACK_UNKNOWN", sse, StringComparison.Ordinal);
+        Assert.Contains("herramienta_inexistente", handler.RequestBodies[1], StringComparison.Ordinal);
+        Assert.Single(await TelemetryOfAsync(app, convId, "tool_call_unknown"));
+        Assert.Equal("gemini", (await MessagesOfAsync(app, convId))[^1].Provider);
+    }
+
+    [Fact]
+    public async Task ChatTurn_Gemini503ThenOk_RetriesOnceAndAnswers()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.ServiceUnavailable, """{"error":{"status":"UNAVAILABLE"}}""");
+        handler.Enqueue(TextStream("Respuesta tras reintentar."));
+
+        var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_UNAVAILABLE");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Contains("Respuesta tras reintentar.", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain("FALLBACK_UNAVAILABLE", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain("event: provider_error", sse, StringComparison.Ordinal);
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Single(await TelemetryOfAsync(app, convId, "llm_retry"));
+        Assert.Equal("gemini", (await MessagesOfAsync(app, convId))[^1].Provider);
+    }
+
+    [Fact]
+    public async Task ChatTurn_Gemini503Twice_FallsBackAfterOneRetryOnly()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.ServiceUnavailable);
+        handler.EnqueueError(HttpStatusCode.ServiceUnavailable);
+        handler.Enqueue(TextStream("No debe usarse."));
+
+        var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_TWICE");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Contains("FALLBACK_TWICE", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain("No debe usarse.", sse, StringComparison.Ordinal);
+        Assert.Equal(2, handler.RequestBodies.Count);
+    }
+
+    [Fact]
+    public async Task ChatTurn_Gemini400_IsNotRetried()
+    {
+        // A malformed request fails the same way twice: retrying only adds latency.
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.BadRequest, """{"error":{"status":"INVALID_ARGUMENT"}}""");
+        handler.Enqueue(TextStream("No debe usarse."));
+
+        var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_BAD_REQUEST");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Contains("FALLBACK_BAD_REQUEST", sse, StringComparison.Ordinal);
+        Assert.Single(handler.RequestBodies);
+        Assert.Empty(await TelemetryOfAsync(app, convId, "llm_retry"));
+    }
+
+    [Fact]
+    public async Task ChatTurn_AnswerCutAtTheOutputLimit_IsContinuedOnce_SoNoDatumIsLeftHalf()
+    {
+        // Observed on staging: a six-question answer ended in "info@pgr.gob" because
+        // Gemini hit the output limit. What was streamed stays; one more pass, with
+        // tools forbidden, finishes it.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(TextStream("El correo es info@pgr.gob", finishReason: "MAX_TOKENS"));
+        handler.Enqueue(TextStream(".do y el teléfono 809-533-3522."));
+
+        var (app, convId) = await AppWithConversationAsync(handler);
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Datos de la Procuraduría");
+
+        // The SSE is the spoken text (the voice sanitizer drops numbers and addresses);
+        // the original, complete answer is what the conversation stores.
+        Assert.Contains("El correo es", sse, StringComparison.Ordinal);
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Equal("NONE", ToolChoiceOf(handler.RequestBodies[1]));
+        Assert.Contains("se cortó por longitud", Unescaped(handler.RequestBodies[1]), StringComparison.Ordinal);
+        Assert.Contains("El correo es info@pgr.gob", handler.RequestBodies[1], StringComparison.Ordinal);
+
+        var messages = await MessagesOfAsync(app, convId);
+        Assert.Equal("El correo es info@pgr.gob.do y el teléfono 809-533-3522.", messages[^1].Content);
+        Assert.Single(await TelemetryOfAsync(app, convId, "llm_truncated"));
+
+        var completed = Assert.Single(await TelemetryOfAsync(app, convId, "backend_completed"));
+        using var turn = JsonDocument.Parse(completed.Data!);
+        Assert.True(turn.RootElement.GetProperty("continued").GetBoolean());
+    }
+
+    /// <summary>The request JSON with non-ASCII characters unescaped ("l\u00EDmite" → "límite").</summary>
+    private static string Unescaped(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        });
+    }
+
+    private static int CountOccurrences(string text, string needle)
+    {
+        var count = 0;
+        for (var i = text.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = text.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 
     private static async Task<string> PostTurnAsync(WebApplicationFactory<Program> app, int convId, string text)
