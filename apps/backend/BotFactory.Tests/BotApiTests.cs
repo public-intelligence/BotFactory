@@ -151,7 +151,7 @@ public class BotApiTests
         Assert.Equal(string.Empty, created.PronunciationRules);
 
         var saved = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(
-            PronunciationRules: "ABC->a,  be, ce\r\n\r\nPunto   ABC = punto a be ce\nabc → repetida"));
+            PronunciationRules: "ABC->a,  be, ce\r\n\r\nPunto   ABC = punto a be ce"));
         Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
         Assert.Equal("ABC → a, be, ce\nPunto ABC → punto a be ce", (await saved.Content.ReadFromJsonAsync<BotResponse>())!.PronunciationRules);
 

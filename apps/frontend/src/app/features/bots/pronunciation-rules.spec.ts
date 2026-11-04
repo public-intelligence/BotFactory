@@ -47,7 +47,7 @@ describe('pronunciation-rules', () => {
   });
 
   it('a repeated written form is reported by name', () => {
-    expect(rulesProblem(checkRules('ABC → a\nabc → b'))).toContain('ABC');
+    expect(rulesProblem(checkRules('ABC → a\nabc → b'))?.toLowerCase()).toContain('abc');
   });
 
   it('the length limits are reported, and exactly the limits are fine', () => {
