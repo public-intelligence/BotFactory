@@ -124,9 +124,20 @@ public class GeminiChatService
         callCts.CancelAfter(timeout);
         var callToken = callCts.Token;
 
+        // Until Gemini sends its first chunk a shorter limit applies: a call that sits on the
+        // request for 30 s is better cut and retried than waited for (see FirstByteTimeoutSeconds).
+        // After the first chunk only the limit of the whole call is left.
+        var firstByteLimit = TimeSpan.FromSeconds(Math.Max(0, _options.Value.FirstByteTimeoutSeconds));
+        var limitFirstByte = firstByteLimit > TimeSpan.Zero && firstByteLimit < timeout;
+        using var firstByteCts = CancellationTokenSource.CreateLinkedTokenSource(callToken);
+        if (limitFirstByte)
+            firstByteCts.CancelAfter(firstByteLimit);
+        var waitToken = firstByteCts.Token;
+        var waitLimit = limitFirstByte ? firstByteLimit : timeout;
+
         using var response = await WithinTimeoutAsync(
-            () => _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, callToken),
-            timeout,
+            () => _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, waitToken),
+            waitLimit,
             cancellationToken);
 
         if (!response.IsSuccessStatusCode)
@@ -146,17 +157,20 @@ public class GeminiChatService
         }
 
         await using var stream = await WithinTimeoutAsync(
-            () => response.Content.ReadAsStreamAsync(callToken),
-            timeout,
+            () => response.Content.ReadAsStreamAsync(waitToken),
+            waitLimit,
             cancellationToken);
         using var reader = new StreamReader(stream, Encoding.UTF8);
 
+        var firstChunkSeen = false;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var readToken = firstChunkSeen ? callToken : waitToken;
+            var readLimit = firstChunkSeen ? timeout : waitLimit;
             var line = await WithinTimeoutAsync(
-                () => reader.ReadLineAsync(callToken).AsTask(),
-                timeout,
+                () => reader.ReadLineAsync(readToken).AsTask(),
+                readLimit,
                 cancellationToken);
             if (line is null)
                 break;
@@ -180,6 +194,14 @@ public class GeminiChatService
             {
                 _logger.LogWarning(ex, "Skipping malformed Gemini SSE JSON");
                 continue;
+            }
+
+            // Gemini has started answering: from here on only the whole-call limit applies, so the
+            // first-byte timer is disarmed (the token it belongs to was also given to SendAsync).
+            if (!firstChunkSeen)
+            {
+                firstChunkSeen = true;
+                firstByteCts.CancelAfter(Timeout.InfiniteTimeSpan);
             }
 
             foreach (var ev in events)

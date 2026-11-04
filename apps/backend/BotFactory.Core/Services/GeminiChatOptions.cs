@@ -14,6 +14,16 @@ public class GeminiChatOptions
     /// </summary>
     public int HttpTimeoutSeconds { get; set; } = 60;
 
+    /// <summary>
+    /// How long to wait for Gemini to start answering (the response headers and the first
+    /// streamed chunk) before giving up on that call and retrying it once. A normal call
+    /// starts answering in 1-2 s; once in about seventy, Gemini sat on a request for 25-35 s
+    /// before answering, and the visitor waited the whole time. Once the first chunk arrives,
+    /// only <see cref="HttpTimeoutSeconds"/> applies. 0 turns this limit off. The call that
+    /// was cut may already have counted its input tokens, so the retry spends them again.
+    /// </summary>
+    public int FirstByteTimeoutSeconds { get; set; } = 10;
+
     public string FallbackMessage { get; set; } = "Lo siento, no pude procesar eso.";
 
     /// <summary>
