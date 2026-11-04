@@ -209,6 +209,7 @@ public static class BotEndpoints
                 BotId = bot.Id,
                 UserId = tenant.UserId,
                 Status = ConversationStatus.Active,
+                Channel = ConversationChannels.For(useVoice),
             };
             db.Conversations.Add(conversation);
             await db.SaveChangesAsync(cancellationToken);

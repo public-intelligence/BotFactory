@@ -59,4 +59,17 @@ describe('ConversationStreamService', () => {
     expect(service.streamingText()).toBe('');
     expect(service.items()).toEqual([]);
   });
+
+  it('disconnect keeps what is on screen when asked to (a new conversation replaces a closed one)', async () => {
+    const items = (service as unknown as { itemsByKey: { set(v: Map<string, unknown>): void } }).itemsByKey;
+    items.set(new Map([['message:1', { kind: 'message', occurredAt: '2026-11-04T10:00:00Z', data: { id: 1 } }]]));
+    expect(service.items().length).toBe(1);
+
+    await service.disconnect({ keepItems: true });
+    expect(service.items().length).toBe(1);
+    expect(service.state()).toBe('idle');
+
+    await service.disconnect();
+    expect(service.items()).toEqual([]);
+  });
 });

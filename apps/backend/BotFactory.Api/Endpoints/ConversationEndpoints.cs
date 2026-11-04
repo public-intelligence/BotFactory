@@ -154,6 +154,14 @@ public static class ConversationEndpoints
             if (!useVoice && !bot.EnableChat)
                 return Results.BadRequest(new { error = "Chat is not enabled for this bot." });
 
+            // The person may come back in the other mode; the idle sweep follows the current one.
+            var resumedChannel = ConversationChannels.For(useVoice);
+            if (conversation.Channel != resumedChannel)
+            {
+                conversation.Channel = resumedChannel;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
             if (!useVoice)
             {
                 if (conversation.Status == ConversationStatus.Paused)

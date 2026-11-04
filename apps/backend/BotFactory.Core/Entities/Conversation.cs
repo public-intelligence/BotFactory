@@ -18,4 +18,12 @@ public class Conversation : BaseEntity
     public string Surface { get; set; } = ConversationSurfaces.Direct;
     public string? SourceUrl { get; set; }
     public string? ParentOrigin { get; set; }
+
+    /// <summary>
+    /// How the person is talking right now (<see cref="ConversationChannels"/>): set when
+    /// the session starts and updated when it is resumed in the other mode. It decides when
+    /// the idle sweep closes the conversation. Defaults to voice, which keeps the old rule
+    /// for every conversation that predates the column.
+    /// </summary>
+    public string Channel { get; set; } = ConversationChannels.Voice;
 }

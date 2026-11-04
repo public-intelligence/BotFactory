@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canSeeOperatorErrors,
   canSeeTelemetryLogs,
+  isConversationClosedError,
   mapPipelineErrorToMessage,
   mapSendTurnError,
   mapSessionEndToMessage,
@@ -56,5 +57,15 @@ describe('chat-session-messages', () => {
       "Failed to invoke 'SendTurn' on the server. HubException: conversation closed",
     );
     expect(mapSendTurnError(err)).toBe(MSG_CONVERSATION_CLOSED);
+  });
+
+  it('isConversationClosedError recognises the hub error and nothing else', () => {
+    expect(
+      isConversationClosedError(
+        new Error("An unexpected error occurred invoking 'SendTurn' on the server. HubException: conversation closed"),
+      ),
+    ).toBe(true);
+    expect(isConversationClosedError(new Error('turn already active'))).toBe(false);
+    expect(isConversationClosedError(new Error('Not connected'))).toBe(false);
   });
 });

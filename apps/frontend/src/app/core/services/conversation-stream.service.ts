@@ -108,23 +108,28 @@ export class ConversationStreamService {
   async connect(
     botId: number,
     conversationId: number,
-    options: { withEvents?: boolean; publicAccessId?: string } = {},
+    options: { withEvents?: boolean; publicAccessId?: string; keepItems?: boolean } = {},
   ): Promise<void> {
     if (this.currentConversationId === conversationId && this.hub) {
       if (options.withEvents) await this.subscribeEvents();
       return;
     }
 
-    await this.disconnect();
+    await this.disconnect({ keepItems: options.keepItems });
     this.currentBotId = botId;
     this.currentConversationId = conversationId;
     this.publicAccessId = options.publicAccessId ?? null;
 
-    await this.loadHistory(botId, conversationId, options.withEvents ?? false);
+    // `keepItems` is for a conversation that was just opened to replace a closed one: what the
+    // person already sees stays on screen, and the new conversation holds nothing but its
+    // greeting, which would show up as a second «Hola» in the middle of the chat.
+    if (!options.keepItems) {
+      await this.loadHistory(botId, conversationId, options.withEvents ?? false);
+    }
     await this.startHub(conversationId, options.withEvents ?? false);
   }
 
-  async disconnect(): Promise<void> {
+  async disconnect(options: { keepItems?: boolean } = {}): Promise<void> {
     if (this.hub) {
       try {
         await this.hub.stop();
@@ -133,7 +138,7 @@ export class ConversationStreamService {
       }
       this.hub = null;
     }
-    this.itemsByKey.set(new Map());
+    if (!options.keepItems) this.itemsByKey.set(new Map());
     this.state.set('idle');
     this.eventsSubscribed.set(false);
     this.clearStreamingState();

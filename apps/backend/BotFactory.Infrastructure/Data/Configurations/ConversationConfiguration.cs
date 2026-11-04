@@ -19,6 +19,7 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.OrganizationId).IsRequired().HasMaxLength(50);
         builder.Property(c => c.AccessMode).IsRequired().HasMaxLength(20);
         builder.Property(c => c.Surface).IsRequired().HasMaxLength(20);
+        builder.Property(c => c.Channel).IsRequired().HasMaxLength(10);
         builder.Property(c => c.SourceUrl).HasMaxLength(2000);
         builder.Property(c => c.ParentOrigin).HasMaxLength(500);
 

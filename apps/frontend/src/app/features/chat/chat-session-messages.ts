@@ -17,6 +17,15 @@ export const MSG_SERVICE_UNAVAILABLE =
 export const MSG_CONVERSATION_CLOSED =
   'Esta conversación ya fue cerrada. Inicia una nueva conversación para seguir hablando.';
 
+/**
+ * The hub refuses a turn on a conversation the server already closed (it was idle
+ * for too long). The chat answers by opening a fresh one instead of asking the person to.
+ */
+export function isConversationClosedError(err: unknown): boolean {
+  const raw = err instanceof Error ? err.message : String(err);
+  return raw.toLowerCase().includes('conversation closed');
+}
+
 export function mapSendTurnError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const lower = raw.toLowerCase();

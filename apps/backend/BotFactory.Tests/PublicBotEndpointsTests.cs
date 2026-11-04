@@ -181,6 +181,41 @@ public class PublicBotEndpointsTests
     }
 
     [Fact]
+    public async Task CreatePublicChat_TextMode_StoresTheTextChannel()
+    {
+        var session = await PublicBotTestHelper.SeedAndStartAsync(_factory, _ => { }, "text");
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        var conv = await db.Conversations.IgnoreQueryFilters().FirstAsync(c => c.Id == session.ConversationId);
+        Assert.Equal(ConversationChannels.Text, conv.Channel);
+    }
+
+    [Fact]
+    public async Task ResumePublicChat_InTextMode_MovesAVoiceConversationToTheTextChannel()
+    {
+        var session = await PublicBotTestHelper.SeedAndStartAsync(_factory, b => { b.EnableVoice = true; }, "text");
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            // A conversation that predates the column (or was last used by voice).
+            var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+            var conv = await db.Conversations.IgnoreQueryFilters().FirstAsync(c => c.Id == session.ConversationId);
+            conv.Channel = ConversationChannels.Voice;
+            await db.SaveChangesAsync();
+        }
+
+        using var client = PublicBotTestHelper.CreatePublicClient(_factory, session.AccessToken);
+        var resume = await client.PostAsync(
+            $"/api/public/bots/{session.Bot.PublicId}/conversations/{session.ConversationId}/resume?mode=text", null);
+        Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+
+        await using var readScope = _factory.Services.CreateAsyncScope();
+        var readDb = readScope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        var updated = await readDb.Conversations.IgnoreQueryFilters().FirstAsync(c => c.Id == session.ConversationId);
+        Assert.Equal(ConversationChannels.Text, updated.Channel);
+    }
+
+    [Fact]
     public async Task ResumeAndClose_OwnerSucceeds_WrongOwnerForbidden()
     {
         var owner = await PublicBotTestHelper.SeedAndStartAsync(_factory);
