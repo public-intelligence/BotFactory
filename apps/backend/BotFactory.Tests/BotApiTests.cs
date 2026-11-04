@@ -64,6 +64,31 @@ public class BotApiTests
     }
 
     [Fact]
+    public async Task UpdateBot_RequireGrounding_IsSaved_AndOmittingItKeepsIt()
+    {
+        var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);
+
+        var createResponse = await client.PostAsJsonAsync("/api/bots", new CreateBotRequest(
+            BotName: "Grounded Bot",
+            UrlSlug: "grounded-bot-toggle"));
+        var created = await createResponse.Content.ReadFromJsonAsync<BotResponse>();
+        Assert.NotNull(created);
+        Assert.False(created.RequireGrounding);
+
+        var on = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(RequireGrounding: true));
+        Assert.Equal(HttpStatusCode.OK, on.StatusCode);
+        Assert.True((await on.Content.ReadFromJsonAsync<BotResponse>())!.RequireGrounding);
+
+        // A save that does not mention it (e.g. another settings tab) leaves it on.
+        await client.PutAsJsonAsync($"/api/bots/{created.Id}", new { botName = "Grounded Bot Renamed" });
+        var reloaded = await client.GetFromJsonAsync<BotResponse>($"/api/bots/{created.Id}");
+        Assert.True(reloaded!.RequireGrounding);
+
+        var off = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(RequireGrounding: false));
+        Assert.False((await off.Content.ReadFromJsonAsync<BotResponse>())!.RequireGrounding);
+    }
+
+    [Fact]
     public async Task UpdateBot_EmptyGreetingMessage_ClearsGreeting()
     {
         var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);

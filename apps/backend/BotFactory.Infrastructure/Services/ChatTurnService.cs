@@ -75,12 +75,23 @@ public sealed class ChatTurnService : IChatTurnService
         // ToolRegistry composes built-ins + the bot's enabled tools this turn.
         await _toolsetSetter.SetBotAsync(bot, cancellationToken);
 
-        var history = await _db.Messages
-            .Where(m => m.ConversationId == conv.Id && m.Role != MessageRole.Tool)
-            .OrderBy(m => m.CreatedAt)
-            .ThenBy(m => m.Id)
-            .Select(m => new GeminiChatMessage(m.Role, m.Content))
-            .ToListAsync(cancellationToken);
+        // «Respaldo obligatorio» bots also get the lookups behind their recent answers,
+        // and those results (in full) become evidence for the grounding gate.
+        List<GeminiChatMessage> history;
+        List<string> historyEvidence = [];
+        if (bot.RequireGrounding)
+        {
+            (history, historyEvidence) = await LoadHistoryWithEvidenceAsync(conv.Id, cancellationToken);
+        }
+        else
+        {
+            history = await _db.Messages
+                .Where(m => m.ConversationId == conv.Id && m.Role != MessageRole.Tool)
+                .OrderBy(m => m.CreatedAt)
+                .ThenBy(m => m.Id)
+                .Select(m => new GeminiChatMessage(m.Role, m.Content, null))
+                .ToListAsync(cancellationToken);
+        }
 
         // A prior turn cancelled mid-flight (barge-in / a superseded turn)
         // persists its user message but no assistant reply — see the
@@ -124,6 +135,49 @@ public sealed class ChatTurnService : IChatTurnService
             _toolsetContext.EnabledTools);
         ChatTurnProviderError? providerError = null;
         var wasCancelled = false;
+
+        // «Respaldo obligatorio»: the answer reaches the user only through the gate,
+        // which checks every datum against the bot's sources.
+        GroundingGate? gate = null;
+        if (bot.RequireGrounding)
+        {
+            gate = new GroundingGate(string.IsNullOrWhiteSpace(bot.GroundedOnlyMessage)
+                ? DefaultUngroundedNote
+                : bot.GroundedOnlyMessage!);
+            gate.AddEvidence(systemInstruction);
+            gate.AddEvidence(request.Text);
+            foreach (var m in history.Where(h => h.Role == MessageRole.User))
+                gate.AddEvidence(m.Content);
+            foreach (var e in historyEvidence)
+                gate.AddEvidence(e);
+        }
+
+        async Task EmitAsync(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            if (!firstTokenEmitted)
+            {
+                firstTokenEmitted = true;
+                ttftMs = (int)sw.ElapsedMilliseconds;
+                await _telemetry.EmitAsync(new TelemetryEmit(
+                    "llm_first_token",
+                    EventSource.Backend,
+                    BotId: conv.BotId,
+                    ConversationId: conv.Id,
+                    UserId: conv.UserId,
+                    TurnId: request.TurnId,
+                    Stage: "llm",
+                    LatencyMs: ttftMs,
+                    Provider: provider,
+                    Summary: $"after {toolInvokes} tool call(s)"),
+                    cancellationToken);
+            }
+
+            buffer.Append(text);
+            await onDelta(text, cancellationToken);
+        }
 
         // Token accounting. Gemini reports usageMetadata on every chunk of a call with
         // running counts, so the last report of the call wins. `geminiCallOpen` marks a
@@ -222,11 +276,14 @@ public sealed class ChatTurnService : IChatTurnService
             // Tool policy for the next Gemini call: the model decides (AUTO) unless the
             // turn needs a text-only answer — after the tool budget ran out, or to
             // continue an answer cut by the output limit — which forbids tools (NONE).
-            var toolChoice = ToolChoice.Auto;
+            // «Respaldo obligatorio»: the first call of the turn must consult a source (ANY).
+            var toolChoice = bot.RequireGrounding ? ToolChoice.Required : ToolChoice.Auto;
+            double? temperature = bot.RequireGrounding ? _chatOptions.Value.GroundedTemperature : null;
 
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var forcedPass = toolChoice == ToolChoice.Required;
 
                 var calls = new List<GeminiFunctionCall>();
                 var passText = new StringBuilder();
@@ -255,7 +312,8 @@ public sealed class ChatTurnService : IChatTurnService
                                            extraContents,
                                            currentUserText,
                                            cancellationToken,
-                                           toolChoice))
+                                           toolChoice,
+                                           temperature))
                         {
                             switch (ev)
                             {
@@ -269,27 +327,17 @@ public sealed class ChatTurnService : IChatTurnService
                                     var safe = d.Text.Replace("\r\n", "\n", StringComparison.Ordinal)
                                         .Replace('\r', '\n');
                                     geminiFirstDeltaMs ??= (int)geminiSw.ElapsedMilliseconds;
-                                    if (!firstTokenEmitted)
+                                    passText.Append(safe);
+                                    if (gate is null)
                                     {
-                                        firstTokenEmitted = true;
-                                        ttftMs = (int)sw.ElapsedMilliseconds;
-                                        await _telemetry.EmitAsync(new TelemetryEmit(
-                                            "llm_first_token",
-                                            EventSource.Backend,
-                                            BotId: conv.BotId,
-                                            ConversationId: conv.Id,
-                                            UserId: conv.UserId,
-                                            TurnId: request.TurnId,
-                                            Stage: "llm",
-                                            LatencyMs: ttftMs,
-                                            Provider: provider,
-                                            Summary: $"after {toolInvokes} tool call(s)"),
-                                            cancellationToken);
+                                        await EmitAsync(safe);
+                                    }
+                                    else
+                                    {
+                                        foreach (var ready in gate.Push(safe))
+                                            await EmitAsync(ready);
                                     }
 
-                                    passText.Append(safe);
-                                    buffer.Append(safe);
-                                    await onDelta(safe, cancellationToken);
                                     break;
 
                                 case GeminiFunctionCall fc:
@@ -425,6 +473,7 @@ public sealed class ChatTurnService : IChatTurnService
                 {
                     toolInvokes++;
                     var outcome = await ExecuteToolCallAsync(call, bot, conv, request.TurnId, segments, cancellationToken);
+                    gate?.AddEvidence(EvidenceJson(outcome.Payload));
                     if (!outcome.KbWithoutResults)
                         allKbEmpty = false;
 
@@ -450,8 +499,12 @@ public sealed class ChatTurnService : IChatTurnService
                 // Grounded-only is a KB-retrieval behavior: it ends the turn only when
                 // everything consulted was the knowledge base and it found nothing. An
                 // external tool returning an empty result must NOT trigger it.
-                if (allKbEmpty && notRun.Count == 0 && !string.IsNullOrEmpty(bot.GroundedOnlyMessage))
+                // Not after a forced lookup: there the model had to call something, and an
+                // empty search for "gracias" must not become "no tengo esa información".
+                // The gate still keeps any invented datum out of the answer.
+                if (allKbEmpty && notRun.Count == 0 && !string.IsNullOrEmpty(bot.GroundedOnlyMessage) && !forcedPass)
                 {
+                    gate?.Discard();
                     var msg = bot.GroundedOnlyMessage!;
                     buffer.Clear();
                     buffer.Append(msg);
@@ -467,6 +520,10 @@ public sealed class ChatTurnService : IChatTurnService
                     provider = ChatMessageProviders.GeminiGroundedOnly;
                     break;
                 }
+
+                // Only the first call of the turn is forced; after the lookup the model is free.
+                if (toolChoice == ToolChoice.Required)
+                    toolChoice = ToolChoice.Auto;
 
                 if (toRun.Count > 0)
                 {
@@ -506,6 +563,45 @@ public sealed class ChatTurnService : IChatTurnService
                 // `currentUserText = null;` here dropped the question from the
                 // post-tool pass and made the bot answer the previous topic
                 // (regression of commit e42fff8); do not reintroduce it.
+            }
+
+            if (gate is not null)
+            {
+                foreach (var ready in gate.Flush())
+                    await EmitAsync(ready);
+
+                foreach (var blocked in gate.Blocked)
+                {
+                    _logger.LogWarning(
+                        "Grounding gate dropped an unsupported {Kind} for conversation {ConversationId}",
+                        blocked.Kind,
+                        conv.Id);
+                    await EmitBestEffortAsync(new TelemetryEmit(
+                        "grounding_blocked",
+                        EventSource.Backend,
+                        BotId: conv.BotId,
+                        ConversationId: conv.Id,
+                        UserId: conv.UserId,
+                        TurnId: request.TurnId,
+                        Stage: "llm",
+                        Provider: "gemini",
+                        Summary: $"{blocked.Kind} '{blocked.Value}' is in no source; sentence not delivered",
+                        Data: JsonSerializer.SerializeToElement(new { kind = blocked.Kind, value = blocked.Value, sentence = blocked.Sentence })));
+                }
+
+                if (toolInvokes == 0)
+                {
+                    await EmitBestEffortAsync(new TelemetryEmit(
+                        "turn_without_tool",
+                        EventSource.Backend,
+                        BotId: conv.BotId,
+                        ConversationId: conv.Id,
+                        UserId: conv.UserId,
+                        TurnId: request.TurnId,
+                        Stage: "llm",
+                        Provider: "gemini",
+                        Summary: "answered without consulting any source"));
+                }
             }
 
             if (buffer.Length == 0 || string.IsNullOrWhiteSpace(buffer.ToString()))
@@ -622,6 +718,7 @@ public sealed class ChatTurnService : IChatTurnService
                     tokens = usageTotals.ToData(),
                     toolCapReached,
                     continued,
+                    groundingBlocked = gate?.Blocked.Count ?? 0,
                     segments,
                 });
 
@@ -668,6 +765,123 @@ public sealed class ChatTurnService : IChatTurnService
 
     // Notes the platform adds to the conversation for one pass. They speak to the
     // model, in the bot's language, and never reach the user.
+    /// <summary>Closing note when a «Respaldo obligatorio» bot has no grounded-only message configured.</summary>
+    private const string DefaultUngroundedNote = "No tengo ese dato confirmado en mis fuentes.";
+
+    private static readonly JsonSerializerOptions EvidenceJsonOptions = new()
+    {
+        // Keep accents and "&" readable: the gate compares text, not escapes.
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    private static string EvidenceJson(object payload) => JsonSerializer.Serialize(payload, EvidenceJsonOptions);
+
+    /// <summary>A stored tool result, re-serialized without escapes for the gate.</summary>
+    private static string EvidenceFromStored(string stored)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(stored);
+            return JsonSerializer.Serialize(doc.RootElement, EvidenceJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return stored;
+        }
+    }
+
+    /// <summary>
+    /// History for a «Respaldo obligatorio» bot: user and assistant messages, where each of
+    /// the last <see cref="GeminiChatOptions.HistoryToolTurns"/> answers carries the lookups
+    /// that backed it (results trimmed for the model). Also returns those results in full,
+    /// as evidence for the gate.
+    /// </summary>
+    private async Task<(List<GeminiChatMessage> History, List<string> Evidence)> LoadHistoryWithEvidenceAsync(
+        int conversationId,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _db.Messages
+            .Where(m => m.ConversationId == conversationId)
+            .OrderBy(m => m.CreatedAt)
+            .ThenBy(m => m.Id)
+            .Select(m => new { m.Role, m.Content })
+            .ToListAsync(cancellationToken);
+
+        // Tool rows are stored in pairs, call then result, between a question and its answer.
+        var history = new List<GeminiChatMessage>();
+        var exchangesByAnswer = new Dictionary<int, List<(string Name, JsonElement Args, string Result)>>();
+        var pending = new List<(string Name, JsonElement Args, string Result)>();
+        string? pendingCall = null;
+
+        foreach (var row in rows)
+        {
+            if (row.Role == MessageRole.Tool)
+            {
+                if (pendingCall is null)
+                {
+                    pendingCall = row.Content;
+                    continue;
+                }
+
+                if (TryParseCall(pendingCall, out var name, out var args))
+                    pending.Add((name, args, row.Content));
+                pendingCall = null;
+                continue;
+            }
+
+            if (row.Role == MessageRole.User)
+            {
+                // Lookups of a turn that never got an answer stay out.
+                pending.Clear();
+                pendingCall = null;
+                history.Add(new GeminiChatMessage(MessageRole.User, row.Content, null));
+                continue;
+            }
+
+            if (pending.Count > 0)
+                exchangesByAnswer[history.Count] = [.. pending];
+            history.Add(new GeminiChatMessage(row.Role, row.Content, null));
+            pending.Clear();
+            pendingCall = null;
+        }
+
+        var evidence = new List<string>();
+        var turns = Math.Max(0, _chatOptions.Value.HistoryToolTurns);
+        var maxChars = Math.Max(200, _chatOptions.Value.HistoryToolResultChars);
+        foreach (var index in exchangesByAnswer.Keys.OrderByDescending(k => k).Take(turns))
+        {
+            var exchanges = exchangesByAnswer[index]
+                .Select(e => new HistoryToolExchange(
+                    e.Name,
+                    e.Args,
+                    e.Result.Length <= maxChars ? e.Result : e.Result[..maxChars]))
+                .ToList();
+            history[index] = history[index] with { ToolExchanges = exchanges };
+            evidence.AddRange(exchangesByAnswer[index].Select(e => EvidenceFromStored(e.Result)));
+        }
+
+        return (history, evidence);
+    }
+
+    private static bool TryParseCall(string content, out string name, out JsonElement args)
+    {
+        name = string.Empty;
+        args = default;
+        try
+        {
+            using var doc = JsonDocument.Parse(content);
+            if (!doc.RootElement.TryGetProperty("name", out var n) || n.GetString() is not { Length: > 0 } parsedName)
+                return false;
+            name = parsedName;
+            args = doc.RootElement.TryGetProperty("args", out var a) ? a.Clone() : JsonDocument.Parse("{}").RootElement.Clone();
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     private const string ContinuationNote =
         "[Nota de la plataforma] Tu respuesta anterior se cortó por longitud. "
         + "Continúa exactamente donde quedó, sin repetir nada de lo ya escrito y sin saludar de nuevo.";

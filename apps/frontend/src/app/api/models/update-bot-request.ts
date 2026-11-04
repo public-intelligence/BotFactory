@@ -19,6 +19,7 @@ export interface UpdateBotRequest {
   noSpeechTimeoutMs?: (number | null);
   publicRequestsPerMinute?: (number | null);
   publishedState?: (string | null);
+  requireGrounding?: (boolean | null);
   requiresAuthentication?: (boolean | null);
   silenceEndMs?: (number | null);
   similarityThreshold?: (number | null);

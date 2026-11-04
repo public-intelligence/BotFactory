@@ -36,6 +36,20 @@ public class GeminiChatOptions
     public double Temperature { get; set; } = 0.3;
 
     /// <summary>
+    /// Sampling temperature for bots with «Respaldo obligatorio»: closer to the sources,
+    /// less room to embellish.
+    /// </summary>
+    public double GroundedTemperature { get; set; } = 0.1;
+
+    /// <summary>
+    /// Bots with «Respaldo obligatorio» re-send the tool results of this many previous
+    /// turns, each trimmed to <see cref="HistoryToolResultChars"/> characters.
+    /// </summary>
+    public int HistoryToolTurns { get; set; } = 3;
+
+    public int HistoryToolResultChars { get; set; } = 2000;
+
+    /// <summary>
     /// Hard cap on generated tokens per Gemini pass. Sized for spoken replies so
     /// answers stay short for voice. Without a cap the model can ramble.
     /// </summary>

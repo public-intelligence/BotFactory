@@ -92,7 +92,8 @@ public class GeminiChatService
         IReadOnlyList<GeminiExtraContent> extraContents,
         string? newUserText,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
-        ToolChoice toolChoice = ToolChoice.Auto)
+        ToolChoice toolChoice = ToolChoice.Auto,
+        double? temperature = null)
     {
         var apiKey = await _appSettings.GetDecryptedKeyAsync(ServiceType.Llm)
             ?? throw new InvalidOperationException(
@@ -107,7 +108,8 @@ public class GeminiChatService
             history,
             extraContents,
             newUserText,
-            toolChoice);
+            toolChoice,
+            temperature);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
@@ -210,11 +212,39 @@ public class GeminiChatService
         IReadOnlyList<GeminiChatMessage> history,
         IReadOnlyList<GeminiExtraContent> extraContents,
         string? newUserText,
-        ToolChoice toolChoice)
+        ToolChoice toolChoice,
+        double? temperature)
     {
         var contents = new List<object>();
         foreach (var m in history)
         {
+            // The lookups behind a past answer go right before it, as Gemini expects:
+            // model functionCall(s), then user functionResponse(s), then the answer.
+            if (m.Role != MessageRole.User && m.ToolExchanges is { Count: > 0 } exchanges)
+            {
+                contents.Add(new
+                {
+                    role = "model",
+                    parts = exchanges
+                        .Select(e => (object)new { functionCall = new { name = e.Name, args = e.Args } })
+                        .ToArray(),
+                });
+                contents.Add(new
+                {
+                    role = "user",
+                    parts = exchanges
+                        .Select(e => (object)new
+                        {
+                            functionResponse = new
+                            {
+                                name = e.Name,
+                                response = new { solicitud = e.Args, resultado = ResultForModel(e.Result) },
+                            },
+                        })
+                        .ToArray(),
+                });
+            }
+
             contents.Add(new
             {
                 role = m.Role == MessageRole.User ? "user" : "model",
@@ -249,7 +279,7 @@ public class GeminiChatService
             // gemini-2.5-flash "thinking" by default for lower voice latency.
             ["generationConfig"] = new
             {
-                temperature = _options.Value.Temperature,
+                temperature = temperature ?? _options.Value.Temperature,
                 maxOutputTokens = _options.Value.MaxOutputTokens,
                 thinkingConfig = new { thinkingBudget = _options.Value.ThinkingBudget },
             },
@@ -269,6 +299,20 @@ public class GeminiChatService
         }
 
         return body;
+    }
+
+    /// <summary>A stored result as JSON when it parses; a trimmed excerpt goes as text.</summary>
+    private static object ResultForModel(string result)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(result);
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return new { recortado = result };
+        }
     }
 
     private static IEnumerable<GeminiStreamEvent> ParseStreamDataEvents(string json)

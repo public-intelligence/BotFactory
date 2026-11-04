@@ -100,6 +100,7 @@ public class BotService : IBotService
         bot.EnableVoice = updated.EnableVoice;
         bot.GroundedOnlyMessage = updated.GroundedOnlyMessage;
         bot.SimilarityThreshold = updated.SimilarityThreshold;
+        bot.RequireGrounding = updated.RequireGrounding;
         bot.VoiceId = updated.VoiceId;
         bot.VadActivationThreshold = updated.VadActivationThreshold;
         bot.VadMinSpeechDurationMs = updated.VadMinSpeechDurationMs;

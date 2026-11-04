@@ -214,6 +214,9 @@ namespace BotFactory.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<bool>("RequireGrounding")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("RequiresAuthentication")
                         .HasColumnType("bit");
 

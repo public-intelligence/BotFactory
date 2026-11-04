@@ -388,6 +388,23 @@ const ACCESS_MANAGE_PERMISSIONS = new Set(['superadmin', 'bot:admin', 'bot:publi
               class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none"
             />
           </div>
+          <label
+            class="flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 px-4 py-3 transition hover:bg-neutral-50"
+          >
+            <input
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-neutral-300"
+              [formControl]="form.controls.requireGrounding"
+            />
+            <span>
+              <span class="block text-sm font-medium text-neutral-900">Respaldo obligatorio</span>
+              <span class="block text-xs text-neutral-500">
+                El bot consulta sus fuentes en cada turno y nunca entrega un dato (teléfono, enlace, correo, monto o cifra)
+                que no esté en su base de conocimiento, sus herramientas o su prompt. Si no lo tiene, responde con el
+                mensaje de arriba.
+              </span>
+            </span>
+          </label>
         </div>
       </section>
 
@@ -456,6 +473,7 @@ export class BotEditGeneral {
     topK: [5],
     similarityThreshold: [0.4],
     groundedOnlyMessage: [''],
+    requireGrounding: [false],
     enableChat: [false],
     enableVoice: [true],
     requiresAuthentication: [true],
@@ -489,6 +507,7 @@ export class BotEditGeneral {
           topK: bot.topK,
           similarityThreshold: bot.similarityThreshold,
           groundedOnlyMessage: bot.groundedOnlyMessage ?? '',
+          requireGrounding: bot.requireGrounding ?? false,
           enableChat: bot.enableChat,
           enableVoice: bot.enableVoice,
           requiresAuthentication: bot.requiresAuthentication,
@@ -596,6 +615,7 @@ export class BotEditGeneral {
           topK: bot.topK,
           similarityThreshold: bot.similarityThreshold,
           groundedOnlyMessage: bot.groundedOnlyMessage ?? '',
+          requireGrounding: bot.requireGrounding ?? false,
           enableChat: bot.enableChat,
           enableVoice: bot.enableVoice,
           requiresAuthentication: bot.requiresAuthentication,
@@ -624,6 +644,7 @@ export class BotEditGeneral {
           topK: values.topK,
           similarityThreshold: values.similarityThreshold,
           groundedOnlyMessage: values.groundedOnlyMessage || null,
+          requireGrounding: values.requireGrounding,
           enableChat: values.enableChat,
           enableVoice: values.enableVoice,
           requiresAuthentication: values.requiresAuthentication,

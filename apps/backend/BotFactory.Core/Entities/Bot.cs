@@ -33,6 +33,15 @@ public class Bot : BaseEntity, IAuditable
 
     public string? GroundedOnlyMessage { get; set; }
     public double SimilarityThreshold { get; set; } = 0.4;
+
+    /// <summary>
+    /// «Respaldo obligatorio»: every answer must come from the bot's sources (knowledge
+    /// base, tools, prompt). The first Gemini call of each turn must consult a tool, recent
+    /// tool results ride in the history, and a sentence carrying a datum (phone, link,
+    /// e-mail, amount, number) that no source contains is not delivered — the bot says
+    /// it has no confirmed information (<see cref="GroundedOnlyMessage"/>) instead.
+    /// </summary>
+    public bool RequireGrounding { get; set; }
     public string? VoiceId { get; set; }
 
     // Spoken by the agent immediately after session start, before the user speaks.
@@ -95,6 +104,7 @@ public class Bot : BaseEntity, IAuditable
         if (request.EnableVoice is not null) EnableVoice = request.EnableVoice.Value;
         if (request.GroundedOnlyMessage is not null) GroundedOnlyMessage = request.GroundedOnlyMessage;
         if (request.SimilarityThreshold.HasValue) SimilarityThreshold = request.SimilarityThreshold.Value;
+        if (request.RequireGrounding is not null) RequireGrounding = request.RequireGrounding.Value;
         if (request.VoiceId is not null) VoiceId = request.VoiceId.Length == 0 ? null : request.VoiceId;
         if (request.GreetingMessage is not null)
             GreetingMessage = string.IsNullOrWhiteSpace(request.GreetingMessage)
