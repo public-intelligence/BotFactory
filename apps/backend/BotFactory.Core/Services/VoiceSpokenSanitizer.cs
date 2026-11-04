@@ -4,10 +4,14 @@ using System.Text.RegularExpressions;
 namespace BotFactory.Core.Services;
 
 /// <summary>
-/// Streaming rewrite for voice TTS: strip URLs, emails and phone numbers from spoken
-/// text and replace the first occurrence with a single Spanish phrase pointing
-/// the user to the chat. Stored/chat text is untouched (sanitizer runs only on
-/// the LiveKit SSE path).
+/// Streaming rewrite for voice TTS. What a voice cannot say well (links, e-mail addresses,
+/// phone numbers, service codes such as *462) is taken out of the spoken text. The caller is
+/// pointed to the chat only when the answer carries the contact line the bot writes when it
+/// gives contact details, «Por favor, vea los datos de contacto:»: that line, and everything
+/// contact-like after it (short numbers included), becomes one phrase, «Puede ver el teléfono
+/// en el chat.». Anywhere else nothing is announced, and numbers a voice reads fine (years,
+/// decrees, amounts) stay in the audio. Stored/chat text is untouched (the sanitizer runs
+/// only on the LiveKit SSE path).
 /// </summary>
 public sealed class VoiceSpokenSanitizer
 {
@@ -30,6 +34,34 @@ public sealed class VoiceSpokenSanitizer
     // Short service numbers (e.g. 1311), optional parentheses.
     private static readonly Regex ShortPhoneRegex = new(
         @"\(?\b\d{3,6}\b\)?",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    // The line the bot writes when it gives contact details: the only place numbers are announced.
+    private static readonly Regex ContactLineMarker = new(
+        @"por\s+favor,?\s+vea\s+los\s+datos\s+de\s+contacto\s*:",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    // The marker as it is compared while it may still be arriving: lowercase, no comma.
+    private const string MarkerCanonical = "por favor vea los datos de contacto:";
+
+    // A service code written with its asterisk (*462).
+    private static readonly Regex ServiceCodeRegex = new(
+        @"\*\d{2,6}\b",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    // Digits alone in parentheses, the written copy of what was just said in words:
+    // «el asterisco cuatro, seis, dos (*462)», «nueve, uno, uno (911)».
+    private static readonly Regex ParenthesizedDigitsRegex = new(
+        @"\(\s*\*?\d{2,6}\s*\)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    // Separators between the items of the contact line (« · »), left over once they are gone.
+    private static readonly Regex LineSeparatorsRegex = new(
+        @"\s*[·•|]\s*",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex SpaceBeforePunctuationRegex = new(
+        @"\s+([.,;:!?])",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly HashSet<char> TrailingUrlJunk = new(".,;:!?)]}'\"»");
@@ -96,6 +128,10 @@ public sealed class VoiceSpokenSanitizer
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The phrase that takes the place of the contact line, in «usted» like the rest of the
+    /// bot's answers. With nothing recognisable after the line, it names the contact details.
+    /// </summary>
     public static string BuildPhrase(int urlCount, int phoneCount, int emailCount = 0)
     {
         var parts = new List<string>(3);
@@ -109,12 +145,12 @@ public sealed class VoiceSpokenSanitizer
         else if (phoneCount > 1) parts.Add("los teléfonos");
 
         if (parts.Count == 0)
-            return string.Empty;
+            return "Puede ver los datos de contacto en el chat.";
         if (parts.Count == 1)
-            return $"Puedes ver {parts[0]} en el chat.";
+            return $"Puede ver {parts[0]} en el chat.";
         if (parts.Count == 2)
-            return $"Puedes ver {parts[0]} y {parts[1]} en el chat.";
-        return $"Puedes ver {parts[0]}, {parts[1]} y {parts[2]} en el chat.";
+            return $"Puede ver {parts[0]} y {parts[1]} en el chat.";
+        return $"Puede ver {parts[0]}, {parts[1]} y {parts[2]} en el chat.";
     }
 
     private IEnumerable<string> DrainPending(bool holdIncompleteTail)
@@ -157,13 +193,18 @@ public sealed class VoiceSpokenSanitizer
                 yield break;
             }
 
-            // Emit text before the first contact, then hold from the contact onward
-            // so Flush can build the pluralized phrase with full counts.
-            if (match.Index > 0)
-                yield return scan[..match.Index];
+            // Emit text before the first contact, then hold from the contact onward so Flush
+            // can build the phrase with full counts. The space just before the contact is held
+            // too: whether it stays depends on what follows once the contact is gone («Ver
+            // https://x.gob.do.» must end «Ver.», not «Ver .»).
+            var holdFrom = match.Index;
+            while (holdFrom > 0 && char.IsWhiteSpace(scan[holdFrom - 1]))
+                holdFrom--;
+            if (holdFrom > 0)
+                yield return scan[..holdFrom];
 
             _holdingFromFirstContact = true;
-            _heldFromFirstContact.Append(text[match.Index..]);
+            _heldFromFirstContact.Append(text[holdFrom..]);
             _pending.Clear();
             yield break;
         }
@@ -174,15 +215,21 @@ public sealed class VoiceSpokenSanitizer
         if (string.IsNullOrEmpty(text))
             return string.Empty;
 
-        var contacts = FindAllContacts(text);
+        var contacts = FindAllContacts(text, out var lineStart);
         if (contacts.Count == 0)
             return text;
 
+        // Only the contact line announces anything: what it holds is counted for the phrase,
+        // which takes the place of its marker. Outside it, what a voice cannot say (links,
+        // addresses, phone numbers, service codes) is dropped without a word.
+        var hasLine = lineStart != int.MaxValue;
         var urlCount = 0;
         var phoneCount = 0;
         var emailCount = 0;
         foreach (var c in contacts)
         {
+            if (c.Index < lineStart)
+                continue;
             switch (c.Kind)
             {
                 case ContactKind.Url: urlCount++; break;
@@ -191,26 +238,45 @@ public sealed class VoiceSpokenSanitizer
             }
         }
 
-        var phrase = BuildPhrase(urlCount, phoneCount, emailCount);
+        var phrase = hasLine ? BuildPhrase(urlCount, phoneCount, emailCount) : string.Empty;
         var sb = new StringBuilder(text.Length + phrase.Length);
         var last = 0;
-        var first = true;
         foreach (var c in contacts)
         {
             sb.Append(text, last, c.Index - last);
-            sb.Append(first ? phrase : " ");
-            first = false;
+            if (c.Kind == ContactKind.Marker)
+                sb.Append(phrase);
             last = c.Index + c.Length;
         }
 
         sb.Append(text, last, text.Length - last);
-        return CollapseWhitespace(sb.ToString());
+
+        var result = CollapseWhitespace(sb.ToString());
+        if (hasLine)
+            result = CollapseWhitespace(LineSeparatorsRegex.Replace(result, " "));
+        result = SpaceBeforePunctuationRegex.Replace(result, "$1");
+
+        // The text held back began with the space that followed what was already spoken.
+        if (result.Length > 0 && char.IsWhiteSpace(text[0]) && result[0] is not ('.' or ',' or ';' or ':' or '!' or '?'))
+            result = " " + result;
+        return result;
     }
 
-    private static List<ContactMatch> FindAllContacts(string text)
+    private static List<ContactMatch> FindAllContacts(string text, out int lineStart)
     {
         var list = new List<ContactMatch>();
         var covered = new bool[text.Length];
+
+        // The contact line, when there is one, starts at its marker; numbers as short as
+        // three digits count as contacts only from there on.
+        lineStart = int.MaxValue;
+        var marker = ContactLineMarker.Match(text);
+        if (marker.Success)
+        {
+            lineStart = marker.Index;
+            Mark(covered, marker.Index, marker.Length);
+            list.Add(new ContactMatch(ContactKind.Marker, marker.Index, marker.Length));
+        }
 
         foreach (Match m in UrlRegex.Matches(text))
         {
@@ -220,7 +286,10 @@ public sealed class VoiceSpokenSanitizer
             if (start > 0 && text[start - 1] == '@') continue;
             var core = text.Substring(start, coreLen);
             if (!IsPlausibleUrl(core)) continue;
-            var replaceLen = m.Index + m.Length - start;
+            // Only the link itself: the full stop that follows it belongs to the sentence.
+            var replaceLen = coreLen;
+            if (Overlaps(covered, start, replaceLen))
+                continue;
             Mark(covered, start, replaceLen);
             list.Add(new ContactMatch(ContactKind.Url, start, replaceLen));
         }
@@ -243,8 +312,27 @@ public sealed class VoiceSpokenSanitizer
             list.Add(new ContactMatch(ContactKind.Phone, start, len));
         }
 
+        // Parenthesised digits first, so the asterisk inside «(*462)» does not split it.
+        foreach (Match m in ParenthesizedDigitsRegex.Matches(text))
+        {
+            if (Overlaps(covered, m.Index, m.Length))
+                continue;
+            Mark(covered, m.Index, m.Length);
+            list.Add(new ContactMatch(ContactKind.Phone, m.Index, m.Length));
+        }
+
+        foreach (Match m in ServiceCodeRegex.Matches(text))
+        {
+            if (Overlaps(covered, m.Index, m.Length))
+                continue;
+            Mark(covered, m.Index, m.Length);
+            list.Add(new ContactMatch(ContactKind.Phone, m.Index, m.Length));
+        }
+
         foreach (Match m in ShortPhoneRegex.Matches(text))
         {
+            if (m.Index < lineStart)
+                continue;
             if (!TryNormalizeShortPhone(text, m.Index, m.Length, out var start, out var len))
                 continue;
             if (Overlaps(covered, start, len))
@@ -257,6 +345,11 @@ public sealed class VoiceSpokenSanitizer
         return list;
     }
 
+    /// <summary>
+    /// The first thing the stream has to hold from: the contact line's marker, or something
+    /// a voice cannot say. Short numbers are not a reason to hold: they only count inside
+    /// the contact line, which starts with its marker.
+    /// </summary>
     private static bool TryFindNextContact(string text, int start, out ContactMatch match)
     {
         match = default;
@@ -269,13 +362,17 @@ public sealed class VoiceSpokenSanitizer
                 best = candidate;
         }
 
+        var marker = ContactLineMarker.Match(text);
+        if (marker.Success)
+            Consider(new ContactMatch(ContactKind.Marker, marker.Index, marker.Length));
+
         foreach (Match m in UrlRegex.Matches(text))
         {
             var (s, coreLen) = TrimUrlMatch(text, m.Index, m.Length);
             if (coreLen <= 0) continue;
             if (s > 0 && text[s - 1] == '@') continue;
             if (!IsPlausibleUrl(text.Substring(s, coreLen))) continue;
-            Consider(new ContactMatch(ContactKind.Url, s, m.Index + m.Length - s));
+            Consider(new ContactMatch(ContactKind.Url, s, coreLen));
         }
 
         foreach (Match m in EmailRegex.Matches(text))
@@ -288,12 +385,11 @@ public sealed class VoiceSpokenSanitizer
             Consider(new ContactMatch(ContactKind.Phone, s, len));
         }
 
-        foreach (Match m in ShortPhoneRegex.Matches(text))
-        {
-            if (!TryNormalizeShortPhone(text, m.Index, m.Length, out var s, out var len))
-                continue;
-            Consider(new ContactMatch(ContactKind.Phone, s, len));
-        }
+        foreach (Match m in ParenthesizedDigitsRegex.Matches(text))
+            Consider(new ContactMatch(ContactKind.Phone, m.Index, m.Length));
+
+        foreach (Match m in ServiceCodeRegex.Matches(text))
+            Consider(new ContactMatch(ContactKind.Phone, m.Index, m.Length));
 
         if (best is null)
             return false;
@@ -435,11 +531,17 @@ public sealed class VoiceSpokenSanitizer
         if (text.Length == 0)
             return 0;
 
+        // Each rule can ask to hold the end of the text back; the earliest start wins.
+        var safe = text.Length;
+
         for (var len = 1; len <= 8 && len <= text.Length; len++)
         {
             var suffix = text[^len..];
             if (IsIncompleteUrlPrefix(suffix))
-                return text.Length - len;
+            {
+                safe = Math.Min(safe, text.Length - len);
+                break;
+            }
         }
 
         // Incomplete email (local@ or trailing @).
@@ -452,7 +554,7 @@ public sealed class VoiceSpokenSanitizer
                 var localStart = at;
                 while (localStart > 0 && IsEmailLocalChar(text[localStart - 1]))
                     localStart--;
-                return localStart;
+                safe = Math.Min(safe, localStart);
             }
         }
 
@@ -464,14 +566,62 @@ public sealed class VoiceSpokenSanitizer
             // Hold growing digit runs; complete short codes are finalized on Flush
             // or when non-phone text follows.
             if (digits > 0 && digits < 7)
-                return phoneTailStart;
-            if (digits is >= 7 and <= 15 && CouldGrowPhone(tail))
-                return phoneTailStart;
-            if (tail.TrimStart().StartsWith('+') && digits < 7)
-                return phoneTailStart;
+                safe = Math.Min(safe, phoneTailStart);
+            else if (digits is >= 7 and <= 15 && CouldGrowPhone(tail))
+                safe = Math.Min(safe, phoneTailStart);
+            else if (tail.TrimStart().StartsWith('+') && digits < 7)
+                safe = Math.Min(safe, phoneTailStart);
         }
 
-        return text.Length;
+        // The marker of the contact line may be arriving in pieces («Por favor, ve» + «a los…»).
+        var markerTail = MarkerPrefixTailStart(text);
+        if (markerTail >= 0)
+            safe = Math.Min(safe, markerTail);
+
+        return safe;
+    }
+
+    /// <summary>Where the end of the text starts looking like the beginning of the contact-line marker, or -1.</summary>
+    private static int MarkerPrefixTailStart(string text)
+    {
+        var longest = Math.Min(text.Length, MarkerCanonical.Length + 4);
+        for (var len = longest; len >= 1; len--)
+        {
+            // The marker starts a word: the «p» that ends «FALLBACK_CAP» is not the start of it.
+            var start = text.Length - len;
+            if (start > 0 && char.IsLetterOrDigit(text[start - 1]))
+                continue;
+
+            var normalized = NormalizeForMarker(text[^len..]);
+            if (normalized.Length > 0 && MarkerCanonical.StartsWith(normalized, StringComparison.Ordinal))
+                return text.Length - len;
+        }
+
+        return -1;
+    }
+
+    // Lowercase, commas dropped, runs of whitespace collapsed: how the marker is compared while it arrives.
+    private static string NormalizeForMarker(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        var previousSpace = false;
+        foreach (var ch in s)
+        {
+            if (ch == ',')
+                continue;
+            if (char.IsWhiteSpace(ch))
+            {
+                if (!previousSpace)
+                    sb.Append(' ');
+                previousSpace = true;
+                continue;
+            }
+
+            sb.Append(char.ToLowerInvariant(ch));
+            previousSpace = false;
+        }
+
+        return sb.ToString();
     }
 
     private static bool IsEmailLocalChar(char c) =>
@@ -501,7 +651,7 @@ public sealed class VoiceSpokenSanitizer
     }
 
     private static bool IsPhoneSepOrDigit(char c) =>
-        char.IsDigit(c) || c is ' ' or '-' or '.' or '(' or ')' or '\t';
+        char.IsDigit(c) || c is ' ' or '-' or '.' or '(' or ')' or '*' or '\t';
 
     private static bool CouldGrowPhone(string tail)
     {
@@ -557,7 +707,7 @@ public sealed class VoiceSpokenSanitizer
         return false;
     }
 
-    private enum ContactKind { Url, Phone, Email }
+    private enum ContactKind { Url, Phone, Email, Marker }
 
     private readonly struct ContactMatch
     {
