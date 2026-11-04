@@ -263,9 +263,11 @@ public sealed class ChatTurnService : IChatTurnService
                                     if (string.IsNullOrEmpty(d.Text))
                                         continue;
 
-                                    var safe = d.Text.Replace("\r\n", " ", StringComparison.Ordinal)
-                                        .Replace('\n', ' ')
-                                        .Replace('\r', ' ');
+                                    // Line breaks are kept: they are what turns a list into a
+                                    // list in the chat. Only the voice channel flattens them
+                                    // (LiveKitEndpoints), since SSE frames and TTS need one line.
+                                    var safe = d.Text.Replace("\r\n", "\n", StringComparison.Ordinal)
+                                        .Replace('\r', '\n');
                                     geminiFirstDeltaMs ??= (int)geminiSw.ElapsedMilliseconds;
                                     if (!firstTokenEmitted)
                                     {

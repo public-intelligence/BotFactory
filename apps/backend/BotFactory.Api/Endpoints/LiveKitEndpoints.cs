@@ -134,7 +134,10 @@ public static class LiveKitEndpoints
                     new ChatTurnExecuteRequest(request.ConversationId, request.Text, request.TurnId),
                     async (delta, ct) =>
                     {
-                        foreach (var spoken in spokenSanitizer.Push(delta))
+                        // The chat keeps line breaks (lists, paragraphs); speech gets one
+                        // line, exactly as before: a raw '\n' would also end the SSE frame.
+                        var oneLine = delta.Replace('\n', ' ');
+                        foreach (var spoken in spokenSanitizer.Push(oneLine))
                             await WriteSpokenDeltaAsync(spoken, ct);
                     },
                     cancellationToken);

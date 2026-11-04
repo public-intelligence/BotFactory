@@ -38,4 +38,24 @@ describe('contact-extract', () => {
       href: 'https://www.example.com',
     });
   });
+  it('short numbers are phones only when the words before them say so', () => {
+    const phones = (t: string) =>
+      linkifySegments(t)
+        .filter((s) => s.type === 'phone')
+        .map((s) => s.value);
+    expect(phones('Está en la 1038 Brickell Avenue, Suite 410, Florida 33131.')).toEqual([]);
+    expect(phones('En caso de emergencia llame al 911.')).toEqual(['911']);
+    expect(phones('Escriba a la línea 1311 de atención.')).toEqual(['1311']);
+  });
+
+  it('star service codes keep the star when dialed', () => {
+    const seg = linkifySegments('Llame al *462 desde cualquier teléfono.').find((s) => s.type === 'phone');
+    expect(seg?.value).toBe('*462');
+    expect(seg && 'href' in seg ? seg.href : '').toBe('tel:*462');
+    expect(extractContacts('Marque *462.').phones).toEqual(['*462']);
+  });
+
+  it('extractContacts leaves addresses out of the phone list', () => {
+    expect(extractContacts('1501 Broadway, Suite 410, New York, NY 10036').phones).toEqual([]);
+  });
 });
