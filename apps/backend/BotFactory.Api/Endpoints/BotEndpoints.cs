@@ -123,6 +123,12 @@ public static class BotEndpoints
             if (themeError is not null)
                 return Results.BadRequest(new { error = themeError });
 
+            var vocabularyError = request.TranscriptionVocabulary is null
+                ? null
+                : TranscriptionTerms.Validate(request.TranscriptionVocabulary);
+            if (vocabularyError is not null)
+                return Results.BadRequest(new { error = vocabularyError });
+
             existing.ApplyUpdate(request);
             BotUpdateHelper.ApplyGreetingFromJson(doc.RootElement, existing);
 
@@ -277,7 +283,8 @@ public static class BotEndpoints
         bot.LogoFilename,
         BlobKey.VersionOf(bot.LogoBlobKey),
         bot.CreatedAt, bot.UpdatedAt,
-        bot.RequireGrounding);
+        bot.RequireGrounding,
+        bot.TranscriptionVocabulary);
 
     internal static bool ResolveSessionMode(string? mode, Bot bot) => mode?.Trim().ToLowerInvariant() switch
     {

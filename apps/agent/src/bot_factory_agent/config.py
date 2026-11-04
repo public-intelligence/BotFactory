@@ -6,6 +6,7 @@ import json
 import os
 from typing import Any, Mapping
 
+from bot_factory_agent.keyterms import clean_keyterms
 from bot_factory_agent.types import AgentConfig, RoomMetadata, WorkerServerConfig
 
 
@@ -136,6 +137,9 @@ def parse_room_metadata(raw: str | None, job_metadata: str | None = None) -> Roo
     ir = parsed.get("isResume")
     is_resume = ir if isinstance(ir, bool) else False
 
+    # Rooms from an API that predates the vocabulary carry none: an empty list, as for a bot without one.
+    vocabulary = clean_keyterms(parsed.get("transcriptionVocabulary"))
+
     return RoomMetadata(
         bot_id=bot_id,
         conversation_id=conversation_id,
@@ -151,4 +155,5 @@ def parse_room_metadata(raw: str | None, job_metadata: str | None = None) -> Roo
         interruption_min_words=interruption_min_words,
         greeting_message=greeting_message,
         is_resume=is_resume,
+        transcription_vocabulary=vocabulary,
     )

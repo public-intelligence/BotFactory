@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -28,6 +28,8 @@ class RoomMetadata:
     interruption_min_words: int
     greeting_message: str | None = None
     is_resume: bool = False
+    # Words the speech recogniser should favour for this bot (see keyterms.py).
+    transcription_vocabulary: list[str] = field(default_factory=list)
 
 
 @dataclass

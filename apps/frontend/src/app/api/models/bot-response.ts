@@ -37,6 +37,7 @@ export interface BotResponse {
   thinkingSoundFilename: (string | null);
   thinkingSoundVersion: (string | null);
   topK: number;
+  transcriptionVocabulary?: string;
   updatedAt: string;
   urlSlug: string;
   vadActivationThreshold: number;
