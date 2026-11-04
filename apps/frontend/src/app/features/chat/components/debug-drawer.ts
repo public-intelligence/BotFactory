@@ -4,7 +4,7 @@ import {
   input,
   output,
 } from '@angular/core';
-import type { BotResponse } from '../../../api/models/bot-response';
+import type { PublicBotResponse } from '../../../api/models/public-bot-response';
 
 @Component({
   selector: 'bf-debug-drawer',
@@ -71,7 +71,7 @@ import type { BotResponse } from '../../../api/models/bot-response';
 })
 export class DebugDrawer {
   readonly open = input<boolean>(false);
-  readonly bot = input<BotResponse | null>(null);
+  readonly bot = input<PublicBotResponse | null>(null);
 
   readonly closed = output<void>();
 }

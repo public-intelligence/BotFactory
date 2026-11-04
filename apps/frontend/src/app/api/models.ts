@@ -36,6 +36,7 @@ export type { PaginatedResponseOfKbDocumentResponse } from './models/paginated-r
 export type { PaginatedResponseOfTelemetryEventResponse } from './models/paginated-response-of-telemetry-event-response';
 export type { PaginatedResponseOfToolDefinitionResponse } from './models/paginated-response-of-tool-definition-response';
 export type { PaginatedResponseOfToolExecutionResponse } from './models/paginated-response-of-tool-execution-response';
+export type { PublicBotResponse } from './models/public-bot-response';
 export type { PublicChatSessionResponse } from './models/public-chat-session-response';
 export type { PublicChatStartRequest } from './models/public-chat-start-request';
 export type { PublicUsageDaily } from './models/public-usage-daily';

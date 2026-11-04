@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Api } from '../../api/api';
-import type { BotResponse } from '../../api/models/bot-response';
+import type { PublicBotResponse } from '../../api/models/public-bot-response';
 
 export const DEFAULT_THINKING_SOUND_URL = '/audio/default-thinking.mp3';
 
@@ -29,7 +29,7 @@ export class ThinkingSoundService {
       });
   }
 
-  resolveUrl(bot: BotResponse, slug: string): string {
+  resolveUrl(bot: PublicBotResponse, slug: string): string {
     if (!bot.hasCustomThinkingSound) {
       return DEFAULT_THINKING_SOUND_URL;
     }

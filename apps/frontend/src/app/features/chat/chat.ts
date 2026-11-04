@@ -18,7 +18,7 @@ import {
   resumeConversation,
   resumePublicConversation,
 } from '../../api/functions';
-import { BotResponse } from '../../api/models/bot-response';
+import { PublicBotResponse } from '../../api/models/public-bot-response';
 import { AuthService } from '../../core/services/auth.service';
 import { PublicSessionService } from '../../core/services/public-session.service';
 import {
@@ -521,7 +521,7 @@ export class Chat implements OnDestroy {
   readonly stream = inject(ConversationStreamService);
   private readonly textSession = viewChild<TextSessionView>('textSession');
 
-  readonly bot = signal<BotResponse | null>(null);
+  readonly bot = signal<PublicBotResponse | null>(null);
   readonly logoUrl = signal<string | null>(null);
   readonly themeStyle = computed(() => themeStyleFromBot(this.bot()));
   readonly connecting = signal(false);
@@ -1122,7 +1122,7 @@ export class Chat implements OnDestroy {
   }
 
   private async startPublicSession(
-    bot: BotResponse,
+    bot: PublicBotResponse,
     mode: InteractionMode,
   ): Promise<{ conversationId: number; token?: string | null; url?: string | null }> {
     // Best-effort observability context: page URL (path only — the backend
@@ -1152,7 +1152,7 @@ export class Chat implements OnDestroy {
   }
 
   private async resumeConversationForMode(
-    bot: BotResponse,
+    bot: PublicBotResponse,
     conversationId: number,
     mode: InteractionMode,
   ): Promise<{ conversationId: number; token?: string | null; url?: string | null }> {
@@ -1174,7 +1174,7 @@ export class Chat implements OnDestroy {
   }
 
   private async closeConversationForMode(
-    bot: BotResponse,
+    bot: PublicBotResponse,
     conversationId: number,
     reason: ClientCloseReason,
   ): Promise<void> {

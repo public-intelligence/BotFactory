@@ -305,6 +305,59 @@ public class ConversationHubTests
         Assert.Equal(turnId, cancelledId);
     }
 
+    private WebApplicationFactory<Program> WithBlockingTurns() =>
+        _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<IChatTurnService>();
+                services.AddSingleton<IChatTurnService, BlockingChatTurnService>();
+            });
+        });
+
+    [Fact]
+    public async Task CancelTurn_OnTheSameConnection_StopsTheTurnInFlight()
+    {
+        // What the chat page does: SendTurn and CancelTurn on one connection. With one
+        // invocation at a time per connection, the cancel waited behind the turn.
+        using var app = WithBlockingTurns();
+        var (convId, token) = await SeedOwnedConversationAsync(app);
+        await using var hub = await HubTestHelper.StartAsync(app, token);
+
+        var started = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.On<object>("turnStarted", payload => started.TrySetResult(ReadGuid(payload, "turnId")));
+        hub.On<object>("turnCancelled", payload => cancelled.TrySetResult(ReadGuid(payload, "turnId")));
+
+        var sending = hub.InvokeAsync("SendTurn", convId, "slow please");
+        var turnId = await started.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        await hub.InvokeAsync("CancelTurn", turnId).WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.Equal(turnId, await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(15)));
+        await sending.WaitAsync(TimeSpan.FromSeconds(15)); // SendTurn still ends when its turn does
+    }
+
+    [Fact]
+    public async Task SendTurn_WhileATurnIsActiveOnTheConnection_IsRefused()
+    {
+        using var app = WithBlockingTurns();
+        var (convId, token) = await SeedOwnedConversationAsync(app);
+        await using var hub = await HubTestHelper.StartAsync(app, token);
+
+        var started = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.On<object>("turnStarted", payload => started.TrySetResult(ReadGuid(payload, "turnId")));
+
+        var first = hub.InvokeAsync("SendTurn", convId, "first");
+        var turnId = await started.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        var ex = await Assert.ThrowsAsync<HubException>(() =>
+            hub.InvokeAsync("SendTurn", convId, "second").WaitAsync(TimeSpan.FromSeconds(15)));
+        Assert.Contains("turn already active", ex.Message, StringComparison.Ordinal);
+
+        await hub.InvokeAsync("CancelTurn", turnId);
+        await first.WaitAsync(TimeSpan.FromSeconds(15));
+    }
+
     [Fact]
     public async Task PublicTokenOwner_CanSendTurn()
     {

@@ -17,6 +17,24 @@ public class ChatTurnRegistryTests
     }
 
     [Fact]
+    public void TryRegister_SecondTurnOnTheSameConnection_IsRefused_UntilTheFirstEnds()
+    {
+        var registry = new ChatTurnRegistry();
+        using var cts1 = new CancellationTokenSource();
+        using var cts2 = new CancellationTokenSource();
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+
+        Assert.True(registry.TryRegister(first, "conn-a", "user-a", cts1));
+        Assert.False(registry.TryRegister(second, "conn-a", "user-a", cts2));
+        // Another connection is independent.
+        Assert.True(registry.TryRegister(Guid.NewGuid(), "conn-b", "user-b", cts2));
+
+        registry.Unregister(first);
+        Assert.True(registry.TryRegister(second, "conn-a", "user-a", cts2));
+    }
+
+    [Fact]
     public void TryCancel_MatchingConnection_Cancels()
     {
         var registry = new ChatTurnRegistry();
