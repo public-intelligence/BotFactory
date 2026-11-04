@@ -18,6 +18,20 @@ const URL_RE =
 const EMAIL_RE = /\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b/gi;
 const PHONE_RE = /\+?\d[\d\s\-().]{5,22}\d/g;
 const SHORT_PHONE_RE = /\(?\b\d{3,6}\b\)?/g;
+/** Star service codes such as *462: always a phone. */
+const STAR_CODE_RE = /(?<![\w*])\*\d{3,5}(?!\d)/g;
+/**
+ * A bare 3–6 digit number is a phone only when the words right before it say so
+ * ("llame al 911", "línea 1311", "teléfono 462"). Without this, street numbers,
+ * suites and postal codes ("1038 Brickell Avenue", "Suite 410", "Florida 33131")
+ * became tappable phone links that dial nowhere.
+ */
+const CALL_INTENT_BEFORE =
+  /(?:\bal|\bmarque(?:\s+el)?|\bmarcar(?:\s+el)?|\bmarca(?:\s+el)?|\bl[ií]nea|\btel[eé]fono|\bn[uú]mero|\bllam[ae]\w*(?:\s+al)?)\s*$/i;
+
+function isShortPhoneContext(text: string, start: number): boolean {
+  return CALL_INTENT_BEFORE.test(text.slice(Math.max(0, start - 24), start));
+}
 const TRAILING_URL_JUNK = /[.,;:!?\]\)\}'»"]+$/;
 
 const KNOWN_TLDS = new Set([
@@ -52,12 +66,13 @@ function hrefFor(url: string): string {
   return /^https?:\/\//i.test(url) ? url : `https://${url}`;
 }
 
-/** tel: href with digits only; keeps a leading + for international numbers. */
+/** tel: href with digits only; keeps a leading + (international) or * (service code). */
 export function telHref(phone: string): string {
   const trimmed = phone.trim();
-  const hasPlus = trimmed.startsWith('+');
   const digits = trimmed.replace(/\D/g, '');
-  return hasPlus ? `tel:+${digits}` : `tel:${digits}`;
+  if (trimmed.startsWith('+')) return `tel:+${digits}`;
+  if (trimmed.startsWith('*')) return `tel:*${digits}`;
+  return `tel:${digits}`;
 }
 
 function isPlausibleUrl(candidate: string): boolean {
@@ -176,6 +191,18 @@ export function extractContacts(text: string): ExtractedContacts {
     }
   }
 
+  for (const m of text.matchAll(STAR_CODE_RE)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (rangesOverlap(covered, start, end)) continue;
+    covered.push({ start, end });
+    const key = `*${m[0].replace(/\D/g, '')}`;
+    if (!phoneSeen.has(key)) {
+      phoneSeen.add(key);
+      phones.push(m[0]);
+    }
+  }
+
   for (const m of text.matchAll(SHORT_PHONE_RE)) {
     const start = m.index ?? 0;
     const end = start + m[0].length;
@@ -183,6 +210,7 @@ export function extractContacts(text: string): ExtractedContacts {
     const before = start > 0 ? text[start - 1] : '';
     const after = end < text.length ? text[end] : '';
     if (/[a-zA-Z0-9]/.test(before) || /[a-zA-Z0-9]/.test(after)) continue;
+    if (!isShortPhoneContext(text, start)) continue;
     const phone = normalizeShortPhone(m[0]);
     if (!phone) continue;
     covered.push({ start, end });
@@ -249,6 +277,18 @@ export function linkifySegments(text: string): TextSegment[] {
     });
   }
 
+  for (const m of text.matchAll(STAR_CODE_RE)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (rangesOverlap(phoneCovered, start, end)) continue;
+    phoneCovered.push({ start, end });
+    hits.push({
+      start,
+      end,
+      seg: { type: 'phone', value: m[0], href: telHref(m[0]) },
+    });
+  }
+
   for (const m of text.matchAll(SHORT_PHONE_RE)) {
     const start = m.index ?? 0;
     const end = start + m[0].length;
@@ -256,6 +296,7 @@ export function linkifySegments(text: string): TextSegment[] {
     const before = start > 0 ? text[start - 1] : '';
     const after = end < text.length ? text[end] : '';
     if (/[a-zA-Z0-9]/.test(before) || /[a-zA-Z0-9]/.test(after)) continue;
+    if (!isShortPhoneContext(text, start)) continue;
     const phone = normalizeShortPhone(m[0]);
     if (!phone) continue;
     phoneCovered.push({ start, end });

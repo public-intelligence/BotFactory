@@ -804,6 +804,32 @@ public class LiveKitChatTurnTests
         });
     }
 
+    [Fact]
+    public async Task ChatTurn_LineBreaks_AreKeptForTheChat_AndFlattenedOnlyForVoice()
+    {
+        // A list is only a list if its line breaks survive. The stored message (what the
+        // chat shows) keeps them; the voice SSE gets one line, as before, so no frame breaks.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(TextStream("Los requisitos son:\n- Cita impresa.\n- Cédula vigente.\n\nEl costo lo publica Pasaportes."));
+
+        var (app, convId) = await AppWithConversationAsync(handler);
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Requisitos del pasaporte");
+
+        var stored = (await MessagesOfAsync(app, convId))[^1];
+        Assert.Equal(MessageRole.Assistant, stored.Role);
+        Assert.Equal("Los requisitos son:\n- Cita impresa.\n- Cédula vigente.\n\nEl costo lo publica Pasaportes.", stored.Content);
+
+        // Every non-empty SSE line is a field or a comment: no stray text line from a '\n'.
+        var lines = sse.Split('\n').Where(l => l.Length > 0).ToList();
+        Assert.All(lines, l => Assert.True(
+            l.StartsWith("data:", StringComparison.Ordinal)
+            || l.StartsWith("event:", StringComparison.Ordinal)
+            || l.StartsWith(':'),
+            $"unexpected SSE line: {l}"));
+        Assert.Contains("Cita impresa.", sse, StringComparison.Ordinal);
+    }
+
     private static int CountOccurrences(string text, string needle)
     {
         var count = 0;

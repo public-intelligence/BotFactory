@@ -20,6 +20,7 @@ import {
 } from './conversation-item';
 import { TooltipFlipDirective } from './tooltip-flip.directive';
 import { linkifySegments } from '../chat/contact-extract';
+import { AssistantMessageComponent } from '../chat/components/assistant-message';
 
 // Human-readable description per pipeline stage, shown in the collapsed-row
 // info tooltip so each step is explained without expanding the waterfall.
@@ -52,7 +53,7 @@ const ERROR_EVENTS = new Set([
 @Component({
   selector: 'bf-conversation-feed',
   standalone: true,
-  imports: [TooltipFlipDirective],
+  imports: [TooltipFlipDirective, AssistantMessageComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
   '[class]': 'hostClasses()',
@@ -97,6 +98,13 @@ const ERROR_EVENTS = new Set([
                 [style.background]="brandedBubbleBg(item)"
                 [style.color]="brandedBubbleFg(item)"
               >
+                @if (!isUser(item)) {
+                  <bf-assistant-message
+                    [content]="item.data.content"
+                    [dark]="dark()"
+                    [branded]="branded()"
+                  />
+                } @else {
                 <p class="whitespace-pre-wrap break-words">
                   @for (seg of linkifySegments(item.data.content); track $index) {
                     @if (seg.type === 'url') {
@@ -126,6 +134,7 @@ const ERROR_EVENTS = new Set([
                     }
                   }
                 </p>
+                }
                 <p
                   class="mt-1 text-xs"
                   [class.text-blue-200]="isUser(item) && !branded()"
