@@ -70,6 +70,31 @@ public class LiveKitRoomRequestTests
     }
 
     [Fact]
+    public void RoomMetadata_TheSpokenGreetingCarriesThePronunciationRules_TheBotsOwnTextDoesNot()
+    {
+        var bot = NewBot();
+        bot.GreetingMessage = "Bienvenido al ABC, y gracias por el abc.";
+        bot.PronunciationRules = "ABC → a, be, ce";
+
+        var metadata = VoiceChatRoomHelper.BuildRoomMetadata(bot, 42);
+
+        // The agent speaks the metadata's greeting with the voice; the bot keeps what is written (the chat shows it).
+        Assert.Equal("Bienvenido al a, be, ce, y gracias por el a, be, ce.", metadata.GreetingMessage);
+        Assert.Equal("Bienvenido al ABC, y gracias por el abc.", bot.GreetingMessage);
+    }
+
+    [Fact]
+    public void RoomMetadata_WithoutRulesOrGreeting_LeavesTheGreetingAsItIs()
+    {
+        var bot = NewBot();
+        Assert.Equal("Hola", VoiceChatRoomHelper.BuildRoomMetadata(bot, 42).GreetingMessage);
+
+        bot.GreetingMessage = null;
+        bot.PronunciationRules = "ABC → a, be, ce";
+        Assert.Null(VoiceChatRoomHelper.BuildRoomMetadata(bot, 42).GreetingMessage);
+    }
+
+    [Fact]
     public void RoomMetadata_WithoutVocabulary_SendsAnEmptyList()
     {
         var bot = NewBot();

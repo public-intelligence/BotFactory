@@ -51,6 +51,14 @@ public class Bot : BaseEntity, IAuditable
     /// </summary>
     public string TranscriptionVocabulary { get; set; } = string.Empty;
 
+    /// <summary>
+    /// How the voice should say what the text writes, one rule per line, <c>written → spoken</c>
+    /// (see <see cref="PronunciationDictionary"/>): «ABC → a, be, ce». Applied only to what goes
+    /// to the voice (the spoken answer and the greeting); the chat and the stored text keep the
+    /// written form. Empty = no rules.
+    /// </summary>
+    public string PronunciationRules { get; set; } = string.Empty;
+
     // Spoken by the agent immediately after session start, before the user speaks.
     // Null/empty disables the greeting (bot waits silently). Sent to the agent via
     // RoomMetadata and played with session.say() in apps/agent/.../agent.py.
@@ -115,6 +123,8 @@ public class Bot : BaseEntity, IAuditable
         if (request.VoiceId is not null) VoiceId = request.VoiceId.Length == 0 ? null : request.VoiceId;
         if (request.TranscriptionVocabulary is not null)
             TranscriptionVocabulary = TranscriptionTerms.Normalize(request.TranscriptionVocabulary);
+        if (request.PronunciationRules is not null)
+            PronunciationRules = PronunciationDictionary.Normalize(request.PronunciationRules);
         if (request.GreetingMessage is not null)
             GreetingMessage = string.IsNullOrWhiteSpace(request.GreetingMessage)
                 ? null

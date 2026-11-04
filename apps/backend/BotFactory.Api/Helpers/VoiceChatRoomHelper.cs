@@ -21,7 +21,9 @@ public static class VoiceChatRoomHelper
             VadMinSpeechDurationMs: bot.VadMinSpeechDurationMs,
             InterruptionMinDurationMs: bot.InterruptionMinDurationMs,
             InterruptionMinWords: bot.InterruptionMinWords,
-            GreetingMessage: bot.GreetingMessage,
+            // The agent speaks this greeting with the voice (the chat shows its own copy, as written).
+            GreetingMessage: PronunciationDictionary.Apply(
+                bot.GreetingMessage, PronunciationDictionary.Parse(bot.PronunciationRules)),
             IsResume: isResume,
             TranscriptionVocabulary: TranscriptionTerms.Parse(bot.TranscriptionVocabulary));
 

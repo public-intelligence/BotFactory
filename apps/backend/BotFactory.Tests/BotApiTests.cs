@@ -141,6 +141,55 @@ public class BotApiTests
     }
 
     [Fact]
+    public async Task UpdateBot_PronunciationRules_AreSavedNormalized_ClearedAndKeptWhenOmitted()
+    {
+        var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);
+        var created = await (await client.PostAsJsonAsync("/api/bots", new CreateBotRequest(
+            BotName: "Pronunciation Bot",
+            UrlSlug: "pronunciation-bot-rules"))).Content.ReadFromJsonAsync<BotResponse>();
+        Assert.NotNull(created);
+        Assert.Equal(string.Empty, created.PronunciationRules);
+
+        var saved = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(
+            PronunciationRules: "ABC->a,  be, ce\r\n\r\nPunto   ABC = punto a be ce"));
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        Assert.Equal("ABC → a, be, ce\nPunto ABC → punto a be ce", (await saved.Content.ReadFromJsonAsync<BotResponse>())!.PronunciationRules);
+
+        // A save that does not mention them (another settings tab) leaves them as they were.
+        await client.PutAsJsonAsync($"/api/bots/{created.Id}", new { botName = "Pronunciation Bot Renamed" });
+        var reloaded = await client.GetFromJsonAsync<BotResponse>($"/api/bots/{created.Id}");
+        Assert.Equal("ABC → a, be, ce\nPunto ABC → punto a be ce", reloaded!.PronunciationRules);
+
+        var cleared = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(PronunciationRules: ""));
+        Assert.Equal(string.Empty, (await cleared.Content.ReadFromJsonAsync<BotResponse>())!.PronunciationRules);
+    }
+
+    [Fact]
+    public async Task UpdateBot_PronunciationRulesThatAreNotRules_AreRejected_AndNothingIsSaved()
+    {
+        var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);
+        var created = await (await client.PostAsJsonAsync("/api/bots", new CreateBotRequest(
+            BotName: "Pronunciation Limits Bot",
+            UrlSlug: "pronunciation-limits-bot"))).Content.ReadFromJsonAsync<BotResponse>();
+        Assert.NotNull(created);
+        await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(PronunciationRules: "ABC → a, be, ce"));
+
+        var noArrow = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(
+            BotName: "Should Not Be Saved",
+            PronunciationRules: "esto no es una regla"));
+        Assert.Equal(HttpStatusCode.BadRequest, noArrow.StatusCode);
+        Assert.Contains("without", await noArrow.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        var repeated = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(
+            PronunciationRules: "ABC → a\nabc → b"));
+        Assert.Equal(HttpStatusCode.BadRequest, repeated.StatusCode);
+
+        var reloaded = await client.GetFromJsonAsync<BotResponse>($"/api/bots/{created.Id}");
+        Assert.Equal("Pronunciation Limits Bot", reloaded!.BotName);
+        Assert.Equal("ABC → a, be, ce", reloaded.PronunciationRules);
+    }
+
+    [Fact]
     public async Task UpdateBot_EmptyGreetingMessage_ClearsGreeting()
     {
         var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);
