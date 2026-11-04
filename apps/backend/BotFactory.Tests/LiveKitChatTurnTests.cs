@@ -830,6 +830,149 @@ public class LiveKitChatTurnTests
         Assert.Contains("Cita impresa.", sse, StringComparison.Ordinal);
     }
 
+    private async Task<(WebApplicationFactory<Program> App, int ConvId)> GroundedAppAsync(
+        ScriptedGeminiHandler handler,
+        string masterPrompt = "Eres un bot de prueba.",
+        Action<BotFactoryDbContext, int>? seedHistory = null)
+    {
+        var app = WithTurnGemini(_factory, handler, fallbackMessage: "FALLBACK_GROUNDED");
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContextSetter>();
+        var convId = await SeedConversationAsync(db, tenant, b =>
+        {
+            b.RequireGrounding = true;
+            b.GroundedOnlyMessage = "SIN_RESPALDO";
+            b.MasterPrompt = masterPrompt;
+        });
+        if (seedHistory is not null)
+        {
+            seedHistory(db, convId);
+            await db.SaveChangesAsync();
+        }
+
+        return (app, convId);
+    }
+
+    private static double TemperatureOf(string requestBody)
+    {
+        using var doc = JsonDocument.Parse(requestBody);
+        return doc.RootElement.GetProperty("generationConfig").GetProperty("temperature").GetDouble();
+    }
+
+    [Fact]
+    public async Task Grounded_FirstCallMustConsult_ThenTheModelIsFree_AtTheLowerTemperature()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(CallsStream("kb_search"));
+        handler.Enqueue(TextStream("Puede hacerlo en línea."));
+
+        var (app, convId) = await GroundedAppAsync(handler);
+        using var _ = app;
+        await PostTurnAsync(app, convId, "¿Cómo lo hago?");
+
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Equal("ANY", ToolChoiceOf(handler.RequestBodies[0]));
+        Assert.Equal("AUTO", ToolChoiceOf(handler.RequestBodies[1]));
+        Assert.Equal(0.1, TemperatureOf(handler.RequestBodies[0]), 3);
+        Assert.Equal("Puede hacerlo en línea.", (await MessagesOfAsync(app, convId))[^1].Content);
+    }
+
+    [Fact]
+    public async Task Grounded_InventedPhone_NeverReachesTheUser_AndTheBotSaysItHasNoConfirmedData()
+    {
+        // The knowledge base found nothing; the model still "knows" a phone number.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(CallsStream("kb_search"));
+        handler.Enqueue(TextStream("La oficina atiende de lunes a viernes. Llame al 809-555-0000 para más información."));
+
+        var (app, convId) = await GroundedAppAsync(handler);
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "¿Cuál es el teléfono?");
+
+        Assert.DoesNotContain("555", sse, StringComparison.Ordinal);
+        var answer = (await MessagesOfAsync(app, convId))[^1];
+        Assert.Equal("La oficina atiende de lunes a viernes. \n\nSIN_RESPALDO", answer.Content);
+
+        var blocked = Assert.Single(await TelemetryOfAsync(app, convId, "grounding_blocked"));
+        Assert.Contains("809-555-0000", blocked.Summary!, StringComparison.Ordinal);
+        using var turn = JsonDocument.Parse(Assert.Single(await TelemetryOfAsync(app, convId, "backend_completed")).Data!);
+        Assert.Equal(1, turn.RootElement.GetProperty("groundingBlocked").GetInt32());
+    }
+
+    [Fact]
+    public async Task Grounded_DataThatIsInThePrompt_IsDelivered()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(CallsStream("kb_search"));
+        handler.Enqueue(TextStream("Llame al 809-532-4233 o al *462."));
+
+        var (app, convId) = await GroundedAppAsync(
+            handler,
+            masterPrompt: "Contacto de Pasaportes: 809-532-4233. Línea de gobierno: *462.");
+        using var _ = app;
+        await PostTurnAsync(app, convId, "¿A dónde llamo?");
+
+        Assert.Equal("Llame al 809-532-4233 o al *462.", (await MessagesOfAsync(app, convId))[^1].Content);
+        Assert.Empty(await TelemetryOfAsync(app, convId, "grounding_blocked"));
+    }
+
+    [Fact]
+    public async Task Grounded_AForcedLookupThatFindsNothing_DoesNotAnswerAThankYouWithNoInformation()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(CallsStream("kb_search"));
+        handler.Enqueue(TextStream("De nada. ¿Le ayudo con algo más?"));
+
+        var (app, convId) = await GroundedAppAsync(handler);
+        using var _ = app;
+        await PostTurnAsync(app, convId, "Gracias");
+
+        Assert.Equal("De nada. ¿Le ayudo con algo más?", (await MessagesOfAsync(app, convId))[^1].Content);
+    }
+
+    [Fact]
+    public async Task Grounded_History_CarriesTheLookupsBehindRecentAnswers_AndTheirDataCounts()
+    {
+        // A previous turn looked up a phone; the follow-up answer may repeat it.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(CallsStream("kb_search"));
+        handler.Enqueue(TextStream("Sí, es el 809-689-3444."));
+
+        var (app, convId) = await GroundedAppAsync(handler, seedHistory: (db, id) =>
+        {
+            db.Messages.Add(new Message { ConversationId = id, Role = MessageRole.User, Content = "¿Teléfono de la DGII?" });
+            db.Messages.Add(new Message { ConversationId = id, Role = MessageRole.Tool, Content = "{\"name\":\"kb_search\",\"args\":{\"query\":\"telefono DGII\"}}", Provider = ChatMessageProviders.GeminiTool });
+            db.Messages.Add(new Message { ConversationId = id, Role = MessageRole.Tool, Content = "{\"texto\":\"Centro de contacto DGII: 809-689-3444\"}", Provider = ChatMessageProviders.GeminiTool });
+            db.Messages.Add(new Message { ConversationId = id, Role = MessageRole.Assistant, Content = "El teléfono de la DGII es el 809-689-3444.", Provider = "gemini" });
+        });
+        using var _ = app;
+        await PostTurnAsync(app, convId, "¿Me lo repite?");
+
+        var first = Unescaped(handler.RequestBodies[0]);
+        Assert.Contains("\"functionCall\":{\"name\":\"kb_search\"", first, StringComparison.Ordinal);
+        Assert.Contains("Centro de contacto DGII: 809-689-3444", first, StringComparison.Ordinal);
+        Assert.True(
+            first.IndexOf("Centro de contacto DGII", StringComparison.Ordinal)
+                < first.IndexOf("El teléfono de la DGII es el 809-689-3444.", StringComparison.Ordinal),
+            "the lookup must come before the answer it backed");
+        Assert.Equal("Sí, es el 809-689-3444.", (await MessagesOfAsync(app, convId))[^1].Content);
+    }
+
+    [Fact]
+    public async Task NotGrounded_BotsKeepTheFreeChoice_AndTheirAnswerIsUntouched()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(TextStream("Llame al 809-555-0000."));
+
+        var (app, convId) = await AppWithConversationAsync(handler);
+        using var _ = app;
+        await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("AUTO", ToolChoiceOf(handler.RequestBodies[0]));
+        Assert.Equal("Llame al 809-555-0000.", (await MessagesOfAsync(app, convId))[^1].Content);
+    }
+
     private static int CountOccurrences(string text, string needle)
     {
         var count = 0;

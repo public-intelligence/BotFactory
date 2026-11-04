@@ -261,7 +261,8 @@ public static class BotEndpoints
         bot.LogoBlobKey is not null,
         bot.LogoFilename,
         BlobKey.VersionOf(bot.LogoBlobKey),
-        bot.CreatedAt, bot.UpdatedAt);
+        bot.CreatedAt, bot.UpdatedAt,
+        bot.RequireGrounding);
 
     internal static bool ResolveSessionMode(string? mode, Bot bot) => mode?.Trim().ToLowerInvariant() switch
     {

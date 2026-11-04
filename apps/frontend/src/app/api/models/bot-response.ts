@@ -27,6 +27,7 @@ export interface BotResponse {
   publicId: string;
   publicRequestsPerMinute: (number | null);
   publishedState: string;
+  requireGrounding?: boolean;
   requiresAuthentication: boolean;
   silenceEndMs: number;
   similarityThreshold: number;

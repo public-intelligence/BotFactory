@@ -53,7 +53,9 @@ public record UpdateBotRequest(
     // Empty string clears a theme color to the platform default; null = no change.
     string? ThemeBackground = null,
     string? ThemePrimary = null,
-    string? ThemeAccent = null);
+    string? ThemeAccent = null,
+    // «Respaldo obligatorio»: only answer from the bot's sources; null = no change.
+    bool? RequireGrounding = null);
 
 public record BotResponse(
     int Id,
@@ -94,4 +96,5 @@ public record BotResponse(
     string? LogoFilename,
     string? LogoVersion,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    bool RequireGrounding = false);

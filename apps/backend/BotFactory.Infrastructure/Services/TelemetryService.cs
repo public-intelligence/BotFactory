@@ -29,6 +29,9 @@ public class TelemetryService : ITelemetryService
         "llm_truncated",
         "tool_cap_reached",
         "tool_call_unknown",
+        // «Respaldo obligatorio»: a datum kept out of the answer; a turn that consulted nothing.
+        "grounding_blocked",
+        "turn_without_tool",
         "barge_in",
         "network_degraded",
         "network_recovered",
