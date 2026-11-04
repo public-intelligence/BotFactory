@@ -29,7 +29,8 @@ public class LiveKitChatTurnTests
         LiveKitWebApplicationFactory baseFactory,
         HttpMessageHandler geminiHandler,
         int maxToolIterations = 2,
-        string fallbackMessage = "Lo siento, no pude procesar eso.")
+        string fallbackMessage = "Lo siento, no pude procesar eso.",
+        int firstByteTimeoutSeconds = 10)
     {
         return baseFactory.WithWebHostBuilder(builder =>
         {
@@ -41,6 +42,7 @@ public class LiveKitChatTurnTests
                     MaxToolIterations = maxToolIterations,
                     FallbackMessage = fallbackMessage,
                     RetryDelayMilliseconds = 0,
+                    FirstByteTimeoutSeconds = firstByteTimeoutSeconds,
                 }));
 
                 services.RemoveAll<GeminiChatService>();
@@ -568,12 +570,17 @@ public class LiveKitChatTurnTests
     /// </summary>
     private sealed class ScriptedGeminiHandler : HttpMessageHandler
     {
-        private readonly Queue<(HttpStatusCode Status, string Body)> _script = new();
+        private readonly Queue<(HttpStatusCode Status, string Body, TimeSpan Delay)> _script = new();
         public List<string> RequestBodies { get; } = [];
 
-        public void Enqueue(string sseBody) => _script.Enqueue((HttpStatusCode.OK, sseBody));
+        public void Enqueue(string sseBody) => _script.Enqueue((HttpStatusCode.OK, sseBody, TimeSpan.Zero));
 
-        public void EnqueueError(HttpStatusCode status, string body = "{}") => _script.Enqueue((status, body));
+        public void EnqueueError(HttpStatusCode status, string body = "{}") =>
+            _script.Enqueue((status, body, TimeSpan.Zero));
+
+        /// <summary>Gemini sits on the request for <paramref name="delay"/> before answering.</summary>
+        public void EnqueueSlow(TimeSpan delay, string sseBody) =>
+            _script.Enqueue((HttpStatusCode.OK, sseBody, delay));
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -585,9 +592,11 @@ public class LiveKitChatTurnTests
             if (request.Content is not null)
                 RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
 
-            var (status, body) = _script.Count > 0
+            var (status, body, delay) = _script.Count > 0
                 ? _script.Dequeue()
-                : (HttpStatusCode.OK, "data: {\"candidates\":[]}\n\n");
+                : (HttpStatusCode.OK, "data: {\"candidates\":[]}\n\n", TimeSpan.Zero);
+            if (delay > TimeSpan.Zero)
+                await Task.Delay(delay, cancellationToken);
             return new HttpResponseMessage(status)
             {
                 Content = new StringContent(
@@ -628,9 +637,15 @@ public class LiveKitChatTurnTests
     private async Task<(WebApplicationFactory<Program> App, int ConvId)> AppWithConversationAsync(
         ScriptedGeminiHandler handler,
         int maxToolIterations = 6,
-        string fallbackMessage = "FALLBACK_P2")
+        string fallbackMessage = "FALLBACK_P2",
+        int firstByteTimeoutSeconds = 10)
     {
-        var app = WithTurnGemini(_factory, handler, maxToolIterations: maxToolIterations, fallbackMessage: fallbackMessage);
+        var app = WithTurnGemini(
+            _factory,
+            handler,
+            maxToolIterations: maxToolIterations,
+            fallbackMessage: fallbackMessage,
+            firstByteTimeoutSeconds: firstByteTimeoutSeconds);
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
         var tenant = scope.ServiceProvider.GetRequiredService<ITenantContextSetter>();
@@ -817,6 +832,50 @@ public class LiveKitChatTurnTests
 
         Assert.Equal(2, handler.RequestBodies.Count);
         Assert.Contains("Respuesta en el segundo intento.", sse, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChatTurn_GeminiSitsOnTheRequest_IsCutAndRetriedOnce_InsteadOfWaitedFor()
+    {
+        // Observed: one call in about seventy sat on the request for 25-35 s and the visitor
+        // waited the whole time. With the first-byte limit (1 s here, 10 s by default) the
+        // call is cut and the retry, which Gemini answers at once, completes the turn.
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueSlow(TimeSpan.FromSeconds(30), TextStream("No debe usarse."));
+        handler.Enqueue(TextStream("Respuesta del segundo intento."));
+
+        var (app, convId) = await AppWithConversationAsync(handler, firstByteTimeoutSeconds: 1);
+        using var _ = app;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"took {sw.Elapsed}");
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Contains("Respuesta del segundo intento.", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain("No debe usarse.", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain("event: provider_error", sse, StringComparison.Ordinal);
+        var retry = Assert.Single(await TelemetryOfAsync(app, convId, "llm_retry"));
+        Assert.Contains("timeout", retry.Summary!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("within 1s", retry.Summary!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChatTurn_GeminiSitsOnBothAttempts_FallsBackAfterTwoCutsNotAMinute()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueSlow(TimeSpan.FromSeconds(30), TextStream("No debe usarse."));
+        handler.EnqueueSlow(TimeSpan.FromSeconds(30), TextStream("No debe usarse."));
+
+        var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_SLOW", firstByteTimeoutSeconds: 1);
+        using var _ = app;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"took {sw.Elapsed}");
+        Assert.Equal(2, handler.RequestBodies.Count);
+        // Checked on the stored message: the voice sanitizer may split a marker across SSE frames.
+        Assert.Equal("FALLBACK_SLOW", (await MessagesOfAsync(app, convId))[^1].Content);
+        Assert.DoesNotContain("No debe usarse.", sse, StringComparison.Ordinal);
     }
 
     [Fact]

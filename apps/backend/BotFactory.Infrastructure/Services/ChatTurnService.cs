@@ -960,7 +960,7 @@ public sealed class ChatTurnService : IChatTurnService
     {
         ProviderServiceException pse => $"Gemini HTTP {pse.StatusCode?.ToString() ?? "?"} ({pse.Info.ErrorCode})"
             + (pse.RetryAfter is { } wait ? $", asks to wait {wait.TotalSeconds:0.#} s" : string.Empty),
-        TimeoutException => "Gemini timeout",
+        TimeoutException timeout => $"Gemini timeout ({timeout.Message})",
         OperationCanceledException => "Gemini timeout",
         _ => $"{ex.GetType().Name}",
     };

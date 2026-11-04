@@ -119,6 +119,111 @@ public class GeminiChatServiceTests
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
+    /// <summary>Answers only after a delay (honouring cancellation): Gemini sitting on the request.</summary>
+    private sealed class DelayedHandler(TimeSpan delay, Func<HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(delay, cancellationToken);
+            return respond();
+        }
+    }
+
+    /// <summary>A body whose bytes arrive in steps, each after its own delay.</summary>
+    private sealed class PacedStream(params (TimeSpan Delay, string Data)[] steps) : Stream
+    {
+        private readonly Queue<(TimeSpan Delay, byte[] Data)> _steps =
+            new(steps.Select(s => (s.Delay, Encoding.UTF8.GetBytes(s.Data))));
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_steps.Count == 0)
+                return 0;
+            var (delay, data) = _steps.Dequeue();
+            if (delay > TimeSpan.Zero)
+                await Task.Delay(delay, cancellationToken);
+            data.CopyTo(buffer);
+            return data.Length;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private const string HolaChunk = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hola\"}]}}]}\n\n";
+    private const string MundoChunk = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" mundo\"}]},\"finishReason\":\"STOP\"}]}\n\n";
+
+    private static HttpResponseMessage OkStream(Stream body) =>
+        new(HttpStatusCode.OK) { Content = new StreamContent(body) };
+
+    [Fact]
+    public async Task StreamAsync_NoAnswerWithinTheFirstByteLimit_TimesOutLongBeforeTheCallLimit()
+    {
+        // Observed: headers took 35 s to arrive. The whole-call limit (30 s here) is far away;
+        // the first-byte limit cuts the wait so the turn can retry.
+        var handler = new DelayedHandler(TimeSpan.FromSeconds(30), () => OkStream(new PacedStream((TimeSpan.Zero, HolaChunk))));
+        var svc = CreateService(handler, options: new GeminiChatOptions { HttpTimeoutSeconds = 30, FirstByteTimeoutSeconds = 1 });
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => DrainAsync(svc));
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(8), $"took {sw.Elapsed}");
+        Assert.Contains("within 1s", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task StreamAsync_HeadersArriveButNoChunkWithinTheFirstByteLimit_TimesOut()
+    {
+        var handler = new CapturingHandler { Respond = _ => OkStream(new StallingStream()) };
+        var svc = CreateService(handler, options: new GeminiChatOptions { HttpTimeoutSeconds = 30, FirstByteTimeoutSeconds = 1 });
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAsync<TimeoutException>(() => DrainAsync(svc));
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(8), $"took {sw.Elapsed}");
+    }
+
+    [Fact]
+    public async Task StreamAsync_SlowAfterTheFirstChunk_IsNotCutByTheFirstByteLimit()
+    {
+        // The first chunk arrives at once; the next one 2 s later, past the 1 s first-byte
+        // limit. Only the limit of the whole call (30 s) applies from the first chunk on.
+        var handler = new CapturingHandler
+        {
+            Respond = _ => OkStream(new PacedStream((TimeSpan.Zero, HolaChunk), (TimeSpan.FromSeconds(2), MundoChunk))),
+        };
+        var svc = CreateService(handler, options: new GeminiChatOptions { HttpTimeoutSeconds = 30, FirstByteTimeoutSeconds = 1 });
+
+        var events = await CollectStreamAsync(svc);
+
+        Assert.Equal(["Hola", " mundo"], events.OfType<GeminiTextDelta>().Select(d => d.Text).ToArray());
+    }
+
+    [Fact]
+    public async Task StreamAsync_FirstByteLimitOfZero_TurnsItOff()
+    {
+        var handler = new DelayedHandler(TimeSpan.FromSeconds(1.5), () => OkStream(new PacedStream((TimeSpan.Zero, HolaChunk), (TimeSpan.Zero, MundoChunk))));
+        var svc = CreateService(handler, options: new GeminiChatOptions { HttpTimeoutSeconds = 30, FirstByteTimeoutSeconds = 0 });
+
+        var events = await CollectStreamAsync(svc);
+
+        Assert.Equal(["Hola", " mundo"], events.OfType<GeminiTextDelta>().Select(d => d.Text).ToArray());
+    }
+
     private static async Task<string> CaptureRequestBodyAsync(ToolChoice toolChoice)
     {
         string? body = null;
