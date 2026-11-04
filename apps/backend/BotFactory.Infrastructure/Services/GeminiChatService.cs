@@ -141,7 +141,8 @@ public class GeminiChatService
                 status,
                 errBody.Length > 2000 ? errBody[..2000] : errBody);
             var info = ProviderErrorClassifier.ClassifyGemini(status, errBody);
-            throw new ProviderServiceException(info, errBody, status);
+            var retryAfter = ProviderErrorClassifier.ParseRetryDelay(errBody) ?? RetryAfterHeader(response);
+            throw new ProviderServiceException(info, errBody, status, retryAfter);
         }
 
         await using var stream = await WithinTimeoutAsync(
@@ -191,6 +192,23 @@ public class GeminiChatService
     /// the call's own time limit (or HttpClient's), surfaced as a TimeoutException so
     /// the turn can tell it apart from a barge-in.
     /// </summary>
+    /// <summary>The wait a <c>Retry-After</c> header asks for, in seconds or as a date.</summary>
+    private static TimeSpan? RetryAfterHeader(HttpResponseMessage response)
+    {
+        var header = response.Headers.RetryAfter;
+        if (header is null)
+            return null;
+        if (header.Delta is { } delta)
+            return delta < TimeSpan.Zero ? TimeSpan.Zero : delta;
+        if (header.Date is { } date)
+        {
+            var wait = date - DateTimeOffset.UtcNow;
+            return wait < TimeSpan.Zero ? TimeSpan.Zero : wait;
+        }
+
+        return null;
+    }
+
     private static async Task<T> WithinTimeoutAsync<T>(
         Func<Task<T>> step,
         TimeSpan timeout,

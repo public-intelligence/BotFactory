@@ -557,6 +557,70 @@ public class GeminiChatServiceTests
     }
 
     [Fact]
+    public async Task StreamAsync_QuotaError_CarriesTheRetryDelayGoogleAskedFor()
+    {
+        var handler = new CapturingHandler
+        {
+            Respond = _ => new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent(
+                    """{"error":{"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"57s"}]}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            },
+        };
+
+        var ex = await Assert.ThrowsAsync<ProviderServiceException>(() => DrainAsync(CreateService(handler)));
+
+        Assert.Equal(429, ex.StatusCode);
+        Assert.Equal(TimeSpan.FromSeconds(57), ex.RetryAfter);
+    }
+
+    [Fact]
+    public async Task StreamAsync_QuotaErrorWithRetryAfterHeader_CarriesThatDelay()
+    {
+        var handler = new CapturingHandler
+        {
+            Respond = _ =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                {
+                    Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+                };
+                response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(7));
+                return response;
+            },
+        };
+
+        var ex = await Assert.ThrowsAsync<ProviderServiceException>(() => DrainAsync(CreateService(handler)));
+
+        Assert.Equal(TimeSpan.FromSeconds(7), ex.RetryAfter);
+    }
+
+    [Fact]
+    public async Task StreamAsync_ErrorThatDoesNotSayHowLongToWait_HasNoRetryAfter()
+    {
+        var handler = new CapturingHandler
+        {
+            Respond = _ => new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            },
+        };
+
+        var ex = await Assert.ThrowsAsync<ProviderServiceException>(() => DrainAsync(CreateService(handler)));
+
+        Assert.Null(ex.RetryAfter);
+    }
+
+    private static async Task DrainAsync(GeminiChatService svc)
+    {
+        await foreach (var _ in svc.StreamAsync("s", [], [], "u", CancellationToken.None))
+        {
+        }
+    }
+
+    [Fact]
     public async Task StreamAsync_StalledStream_ThrowsTimeoutException_NotAHang()
     {
         // HttpClient.Timeout stops guarding once headers arrive; the call's own limit
