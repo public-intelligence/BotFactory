@@ -653,9 +653,24 @@ public class LiveKitChatTurnTests
         return (app, await SeedConversationAsync(db, tenant, configureBot));
     }
 
-    // The words of the spoken answer: what the agent receives on the stream, frames joined.
+    // The `userMessage` of the turn's provider_error event: what the app is told to show.
+    private static string? ProviderErrorUserMessage(string sse)
+    {
+        var data = sse.Split('\n')
+            .SkipWhile(l => !l.StartsWith("event: provider_error", StringComparison.Ordinal))
+            .Skip(1)
+            .First(l => l.StartsWith("data: ", StringComparison.Ordinal))[6..];
+        return JsonDocument.Parse(data).RootElement.GetProperty("userMessage").GetString();
+    }
+
+    // The words of the spoken answer: what the agent receives on the stream, frames joined. The data of a named
+    // event (provider_error…) is not a word to say, so only the plain `data:` frames count.
     private static string SpokenText(string sse) =>
-        string.Concat(sse.Split('\n').Where(l => l.StartsWith("data: ", StringComparison.Ordinal)).Select(l => l[6..]));
+        string.Concat(sse.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+            .Where(block => !block.StartsWith("event: ", StringComparison.Ordinal))
+            .SelectMany(block => block.Split('\n'))
+            .Where(l => l.StartsWith("data: ", StringComparison.Ordinal))
+            .Select(l => l[6..]));
 
     [Fact]
     public async Task ChatTurn_ThePronunciationRulesApplyToWhatIsSpoken_NotToWhatIsStored()
@@ -937,7 +952,8 @@ public class LiveKitChatTurnTests
         var sse = await PostTurnAsync(app, convId, "Hola");
 
         Assert.Equal("FALLBACK_DEL_SERVIDOR", (await MessagesOfAsync(app, convId))[^1].Content);
-        Assert.Contains(ProviderErrorClassifier.UserMessageUnavailable, sse, StringComparison.Ordinal);
+        // The event's JSON escapes the accents, so read the field rather than search the raw stream.
+        Assert.Equal(ProviderErrorClassifier.UserMessageUnavailable, ProviderErrorUserMessage(sse));
     }
 
     [Fact]
