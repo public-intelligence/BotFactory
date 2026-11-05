@@ -270,6 +270,22 @@ export function turnMetricsItem(e: TelemetryEventResponse): ConversationItem | n
   }
 }
 
+/** Two stretches of the same turn added together. */
+function addTurnTokens(a: TurnTokens, b: TurnTokens): TurnTokens {
+  const promptTokens: number = a.promptTokens + b.promptTokens;
+  const cachedTokens: number = a.cachedTokens + b.cachedTokens;
+  return {
+    promptTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cachedTokens,
+    thoughtsTokens: a.thoughtsTokens + b.thoughtsTokens,
+    calls: a.calls + b.calls,
+    unreportedCalls: a.unreportedCalls + b.unreportedCalls,
+    totalTokens: a.totalTokens + b.totalTokens,
+    cachedPercent: promptTokens > 0 ? Math.round((100 * cachedTokens) / promptTokens) : 0,
+  };
+}
+
 /**
  * What each answer cost, by message id. A turn is everything between two visitor messages: its
  * summary (`backend_completed`) carries the tokens the turn spent, and the answer is the last
@@ -293,23 +309,7 @@ export function tokensByAnswer(items: ConversationItem[]): Map<number, TurnToken
       if (item.data.role === 'User') close();
       else answerId = item.data.id;
     } else if (item.kind === 'turn-summary' && item.data.tokens) {
-      const t = item.data.tokens;
-      if (spent === null) {
-        spent = t;
-      } else {
-        const promptTokens = spent.promptTokens + t.promptTokens;
-        const cachedTokens = spent.cachedTokens + t.cachedTokens;
-        spent = {
-          promptTokens,
-          outputTokens: spent.outputTokens + t.outputTokens,
-          cachedTokens,
-          thoughtsTokens: spent.thoughtsTokens + t.thoughtsTokens,
-          calls: spent.calls + t.calls,
-          unreportedCalls: spent.unreportedCalls + t.unreportedCalls,
-          totalTokens: spent.totalTokens + t.totalTokens,
-          cachedPercent: promptTokens > 0 ? Math.round((100 * cachedTokens) / promptTokens) : 0,
-        };
-      }
+      spent = spent === null ? item.data.tokens : addTurnTokens(spent, item.data.tokens);
     }
   }
   close();
