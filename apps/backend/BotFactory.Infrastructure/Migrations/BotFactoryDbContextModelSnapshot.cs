@@ -167,6 +167,10 @@ namespace BotFactory.Infrastructure.Migrations
                     b.Property<bool>("EnableVoice")
                         .HasColumnType("bit");
 
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<string>("GreetingMessage")
                         .HasColumnType("nvarchar(max)");
 
@@ -218,6 +222,14 @@ namespace BotFactory.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("QuotaMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("RateLimitMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<bool>("RequireGrounding")
                         .HasColumnType("bit");

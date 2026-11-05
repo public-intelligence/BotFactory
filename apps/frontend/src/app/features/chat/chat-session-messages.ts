@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import type { SessionEndInfo, SessionPausedInfo } from '../../core/services/livekit.service';
 
 export const MSG_CONNECTION_LOST =
@@ -13,7 +14,11 @@ const MSG_VOICE_SERVICE =
 const MSG_GENERIC_END =
   'La conversación terminó. Puedes iniciar una nueva conversación.';
 export const MSG_SERVICE_UNAVAILABLE =
-  'El servicio no está disponible en este momento. Por favor, intenta más tarde.';
+  'El servicio no está disponible en este momento. Por favor, intente más tarde.';
+/** Opening the chat hit a limit and the server did not say what to show (it normally does). */
+export const MSG_LIMIT_REACHED =
+  'El asistente está atendiendo demasiadas conversaciones. Intente de nuevo en unos minutos.';
+export const MSG_CONNECT_FAILED = 'Error al conectar.';
 export const MSG_CONVERSATION_CLOSED =
   'Esta conversación ya fue cerrada. Inicia una nueva conversación para seguir hablando.';
 
@@ -24,6 +29,28 @@ export const MSG_CONVERSATION_CLOSED =
 export function isConversationClosedError(err: unknown): boolean {
   const raw = err instanceof Error ? err.message : String(err);
   return raw.toLowerCase().includes('conversation closed');
+}
+
+/**
+ * What to show when opening or resuming a chat fails. A failed HTTP call is not an `Error`, so the
+ * page used to say «Error al conectar.» for everything, including the limits the server explains
+ * in its own words (the bot's own message, when its owner set one). The server's text wins; a 429
+ * or a 503 without one gets a plain default; anything else the generic text.
+ */
+export function connectErrorMessage(err: unknown, generic: string = MSG_CONNECT_FAILED): string {
+  if (err instanceof HttpErrorResponse) {
+    const body: unknown = err.error;
+    const fromServer =
+      typeof body === 'object' && body !== null && 'error' in body
+        ? (body as { error: unknown }).error
+        : null;
+    if (typeof fromServer === 'string' && fromServer.trim()) return fromServer.trim();
+    if (err.status === 429) return MSG_LIMIT_REACHED;
+    if (err.status === 503) return MSG_SERVICE_UNAVAILABLE;
+    return generic;
+  }
+  if (err instanceof Error) return err.message;
+  return generic;
 }
 
 export function mapSendTurnError(err: unknown): string {

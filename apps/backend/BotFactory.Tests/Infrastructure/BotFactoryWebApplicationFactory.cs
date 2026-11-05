@@ -68,6 +68,10 @@ public class BotFactoryWebApplicationFactory : WebApplicationFactory<Program>, I
         builder.UseSetting("PublicAccess:SigningKey", "test-public-signing-key-at-least-32-chars!!");
         // Prefer local wwwroot for embed shell (never hit the real SPA in tests).
         builder.UseSetting("PublicAccess:SpaIndexUrl", "");
+        // Every test client reaches the API from the same address, and the whole «Database» collection shares
+        // this factory: the default per-address limit (30 a minute) would be spent by the number of tests,
+        // not by what any of them does. The limits a test is about are the bot's and the cap's.
+        builder.UseSetting("PublicAccess:RequestsPerMinutePerIp", "100000");
 
 
         builder.ConfigureServices(services =>

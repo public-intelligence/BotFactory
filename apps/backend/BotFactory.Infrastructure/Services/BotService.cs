@@ -104,6 +104,9 @@ public class BotService : IBotService
         bot.VoiceId = updated.VoiceId;
         bot.TranscriptionVocabulary = updated.TranscriptionVocabulary;
         bot.PronunciationRules = updated.PronunciationRules;
+        bot.RateLimitMessage = updated.RateLimitMessage;
+        bot.QuotaMessage = updated.QuotaMessage;
+        bot.ErrorMessage = updated.ErrorMessage;
         bot.VadActivationThreshold = updated.VadActivationThreshold;
         bot.VadMinSpeechDurationMs = updated.VadMinSpeechDurationMs;
         bot.InterruptionMinDurationMs = updated.InterruptionMinDurationMs;

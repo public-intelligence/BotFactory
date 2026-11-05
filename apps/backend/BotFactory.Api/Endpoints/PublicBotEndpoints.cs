@@ -82,7 +82,7 @@ public static class PublicBotEndpoints
                 tenantSetter.SetTenant(bot.OrganizationId);
                 await EmitRejectedAsync(telemetry, bot, "anonymous_session_cap", cancellationToken);
                 return Results.Json(
-                    new { error = "El asistente está atendiendo demasiadas conversaciones. Intenta de nuevo en unos minutos." },
+                    new { error = BotErrorMessages.Resolve(bot.RateLimitMessage, BotErrorMessages.ConversationsLimitDefault) },
                     statusCode: StatusCodes.Status429TooManyRequests);
             }
 
@@ -370,7 +370,7 @@ public static class PublicBotEndpoints
             Data: JsonSerializer.SerializeToElement(new { scope })), cancellationToken);
 
         return Results.Json(
-            new { error = "Demasiadas solicitudes. Intenta de nuevo en unos minutos." },
+            new { error = BotErrorMessages.Resolve(bot.RateLimitMessage, BotErrorMessages.RequestsLimitDefault) },
             statusCode: StatusCodes.Status429TooManyRequests);
     }
 

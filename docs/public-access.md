@@ -30,6 +30,11 @@ updates it when the session is resumed in the other mode; the sweep follows it. 
 sweep closes a text conversation and the person comes back, the chat opens a new one for
 the same bot and sends the message again.
 
+When a limit rejects the opening of a chat, the 429 carries `{ "error": "<message>" }`: the bot's
+`RateLimitMessage` (General tab, «Mensajes de error») when set, otherwise the platform's text. This holds
+for the active-conversations cap and for the per-minute limits of the bot, the organization and the
+address. The page shows that text.
+
 Agent callbacks: `AgentCallback__SharedSecret` (API) must match `BACKEND_SHARED_SECRET`
 (agent). When unset the `/livekit/*` endpoints are open — dev only; the API logs a
 startup warning.

@@ -51,6 +51,7 @@ import {
   isIdleAgentClose,
   mapPipelineErrorToMessage,
   mapSessionEndToMessage,
+  connectErrorMessage,
   isConversationClosedError,
   mapSendTurnError,
   mapSessionPausedToMessage,
@@ -1106,9 +1107,7 @@ export class Chat implements OnDestroy {
           return;
         }
       }
-      const message =
-        err instanceof Error ? err.message : 'Error al conectar.';
-      this.error.set(message);
+      this.error.set(connectErrorMessage(err));
       this.lk.disconnect();
       this.textSessionActive.set(false);
       void this.stream.disconnect();
@@ -1237,9 +1236,7 @@ export class Chat implements OnDestroy {
         return;
       }
       this.sessionPausedMessage.set(MSG_INACTIVITY_PAUSE);
-      const message =
-        err instanceof Error ? err.message : 'Error al reanudar.';
-      this.error.set(message);
+      this.error.set(connectErrorMessage(err, 'Error al reanudar.'));
     } finally {
       this.connecting.set(false);
     }

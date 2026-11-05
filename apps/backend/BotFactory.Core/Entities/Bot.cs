@@ -59,6 +59,25 @@ public class Bot : BaseEntity, IAuditable
     /// </summary>
     public string PronunciationRules { get; set; } = string.Empty;
 
+    /// <summary>
+    /// What the visitor reads when opening the chat hits a limit (active conversations, requests per
+    /// minute). Null = <see cref="BotErrorMessages.ConversationsLimitDefault"/> or
+    /// <see cref="BotErrorMessages.RequestsLimitDefault"/>.
+    /// </summary>
+    public string? RateLimitMessage { get; set; }
+
+    /// <summary>
+    /// What the visitor reads, and hears, when the model's quota is spent (Gemini's 429). Null =
+    /// <c>ProviderErrorClassifier.UserMessageBusy</c>.
+    /// </summary>
+    public string? QuotaMessage { get; set; }
+
+    /// <summary>
+    /// What the visitor reads, and hears, when the model fails or times out. Null = the server's
+    /// <c>Gemini:FallbackMessage</c>.
+    /// </summary>
+    public string? ErrorMessage { get; set; }
+
     // Spoken by the agent immediately after session start, before the user speaks.
     // Null/empty disables the greeting (bot waits silently). Sent to the agent via
     // RoomMetadata and played with session.say() in apps/agent/.../agent.py.
@@ -125,6 +144,10 @@ public class Bot : BaseEntity, IAuditable
             TranscriptionVocabulary = TranscriptionTerms.Normalize(request.TranscriptionVocabulary);
         if (request.PronunciationRules is not null)
             PronunciationRules = PronunciationDictionary.Normalize(request.PronunciationRules);
+        // "" (or only spaces) clears a message back to the default; null = no change.
+        if (request.RateLimitMessage is not null) RateLimitMessage = BotErrorMessages.Normalize(request.RateLimitMessage);
+        if (request.QuotaMessage is not null) QuotaMessage = BotErrorMessages.Normalize(request.QuotaMessage);
+        if (request.ErrorMessage is not null) ErrorMessage = BotErrorMessages.Normalize(request.ErrorMessage);
         if (request.GreetingMessage is not null)
             GreetingMessage = string.IsNullOrWhiteSpace(request.GreetingMessage)
                 ? null

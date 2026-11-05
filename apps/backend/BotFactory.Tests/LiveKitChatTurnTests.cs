@@ -653,9 +653,24 @@ public class LiveKitChatTurnTests
         return (app, await SeedConversationAsync(db, tenant, configureBot));
     }
 
-    // The words of the spoken answer: what the agent receives on the stream, frames joined.
+    // The `userMessage` of the turn's provider_error event: what the app is told to show.
+    private static string? ProviderErrorUserMessage(string sse)
+    {
+        var data = sse.Split('\n')
+            .SkipWhile(l => !l.StartsWith("event: provider_error", StringComparison.Ordinal))
+            .Skip(1)
+            .First(l => l.StartsWith("data: ", StringComparison.Ordinal))[6..];
+        return JsonDocument.Parse(data).RootElement.GetProperty("userMessage").GetString();
+    }
+
+    // The words of the spoken answer: what the agent receives on the stream, frames joined. The data of a named
+    // event (provider_error…) is not a word to say, so only the plain `data:` frames count.
     private static string SpokenText(string sse) =>
-        string.Concat(sse.Split('\n').Where(l => l.StartsWith("data: ", StringComparison.Ordinal)).Select(l => l[6..]));
+        string.Concat(sse.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+            .Where(block => !block.StartsWith("event: ", StringComparison.Ordinal))
+            .SelectMany(block => block.Split('\n'))
+            .Where(l => l.StartsWith("data: ", StringComparison.Ordinal))
+            .Select(l => l[6..]));
 
     [Fact]
     public async Task ChatTurn_ThePronunciationRulesApplyToWhatIsSpoken_NotToWhatIsStored()
@@ -870,6 +885,75 @@ public class LiveKitChatTurnTests
 
         var assistant = (await MessagesOfAsync(app, convId))[^1];
         Assert.Equal(ProviderErrorClassifier.UserMessageBusy, assistant.Content);
+    }
+
+    [Fact]
+    public async Task ChatTurn_QuotaWithTheBotsOwnMessage_IsWhatTheVisitorReadsAndHears()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.TooManyRequests, QuotaBody("57s"));
+
+        var (app, convId) = await AppWithConversationAsync(
+            handler, configureBot: b => b.QuotaMessage = "Mensaje de saturacion propio del bot.");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        // The answer in the chat, what the voice speaks and the error event's userMessage are one text.
+        Assert.Equal("Mensaje de saturacion propio del bot.", SpokenText(sse));
+        Assert.Equal("Mensaje de saturacion propio del bot.", (await MessagesOfAsync(app, convId))[^1].Content);
+        Assert.Contains("event: provider_error", sse, StringComparison.Ordinal);
+        Assert.Contains("\"userMessage\":\"Mensaje de saturacion propio del bot.\"", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain(ProviderErrorClassifier.UserMessageBusy, sse, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChatTurn_ErrorWithTheBotsOwnMessage_ReplacesTheServersFallback()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.BadRequest, """{"error":{"status":"INVALID_ARGUMENT"}}""");
+
+        var (app, convId) = await AppWithConversationAsync(
+            handler, fallbackMessage: "FALLBACK_DEL_SERVIDOR", configureBot: b => b.ErrorMessage = "Mensaje de error propio del bot.");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("Mensaje de error propio del bot.", SpokenText(sse));
+        Assert.Equal("Mensaje de error propio del bot.", (await MessagesOfAsync(app, convId))[^1].Content);
+        Assert.Contains("\"userMessage\":\"Mensaje de error propio del bot.\"", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain("FALLBACK_DEL_SERVIDOR", sse, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChatTurn_ATimeoutWithTheBotsOwnErrorMessage_SaysIt()
+    {
+        // Both attempts stall: the turn gives up, and the words are the bot's, not the server's.
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueSlow(TimeSpan.FromSeconds(30), TextStream("No debe usarse."));
+        handler.EnqueueSlow(TimeSpan.FromSeconds(30), TextStream("No debe usarse."));
+
+        var (app, convId) = await AppWithConversationAsync(
+            handler, fallbackMessage: "FALLBACK_DEL_SERVIDOR", firstByteTimeoutSeconds: 1,
+            configureBot: b => b.ErrorMessage = "Tiempo agotado, mensaje propio.");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("Tiempo agotado, mensaje propio.", SpokenText(sse));
+        Assert.Equal("Tiempo agotado, mensaje propio.", (await MessagesOfAsync(app, convId))[^1].Content);
+    }
+
+    [Fact]
+    public async Task ChatTurn_ErrorWithoutAMessage_KeepsTheServersFallback()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.BadRequest, """{"error":{"status":"INVALID_ARGUMENT"}}""");
+
+        var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_DEL_SERVIDOR");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("FALLBACK_DEL_SERVIDOR", (await MessagesOfAsync(app, convId))[^1].Content);
+        // The event's JSON escapes the accents, so read the field rather than search the raw stream.
+        Assert.Equal(ProviderErrorClassifier.UserMessageUnavailable, ProviderErrorUserMessage(sse));
     }
 
     [Fact]

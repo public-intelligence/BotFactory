@@ -328,6 +328,8 @@ builder.Services.AddRateLimiter(options =>
     // IP itself is never stored.
     options.OnRejected = async (context, cancellationToken) =>
     {
+        // What the visitor reads: the bot's own message when the route says which bot, the default otherwise.
+        var message = BotFactory.Core.Entities.BotErrorMessages.RequestsLimitDefault;
         try
         {
             var services = context.HttpContext.RequestServices;
@@ -337,6 +339,8 @@ builder.Services.AddRateLimiter(options =>
                 var bot = await services.GetRequiredService<IBotService>().GetByPublicIdAsync(publicId);
                 if (bot is not null)
                 {
+                    message = BotFactory.Core.Entities.BotErrorMessages.Resolve(
+                        bot.RateLimitMessage, BotFactory.Core.Entities.BotErrorMessages.RequestsLimitDefault);
                     services.GetRequiredService<ITenantContextSetter>().SetTenant(bot.OrganizationId);
                     await services.GetRequiredService<ITelemetryService>().EmitAsync(new TelemetryEmit(
                         "rate_limit_exceeded",
@@ -350,6 +354,16 @@ builder.Services.AddRateLimiter(options =>
         catch
         {
             // Telemetry on the rejection path is best-effort.
+        }
+
+        // The rejection used to carry no body, so the page could only say «Error al conectar».
+        try
+        {
+            await context.HttpContext.Response.WriteAsJsonAsync(new { error = message }, cancellationToken);
+        }
+        catch
+        {
+            // The response may already be closed; the status code is what matters.
         }
     };
 });

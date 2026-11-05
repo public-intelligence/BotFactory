@@ -11,14 +11,14 @@ namespace BotFactory.Core.Services;
 public static class ProviderErrorClassifier
 {
     public const string UserMessageUnavailable =
-        "El servicio no está disponible en este momento. Por favor, intenta más tarde.";
+        "El servicio no está disponible en este momento. Por favor, intente más tarde.";
 
     /// <summary>
     /// What the visitor reads (and hears) when the provider's quota is spent: it says what is
     /// happening and what to do, instead of a generic «no pude procesar eso».
     /// </summary>
     public const string UserMessageBusy =
-        "Estoy atendiendo muchas consultas en este momento. Intenta de nuevo en un minuto.";
+        "Estoy atendiendo muchas consultas en este momento. Intente de nuevo en un minuto.";
 
     public const string CodeElevenLabsQuotaExceeded = "elevenlabs_quota_exceeded";
     public const string CodeElevenLabsAuthFailed = "elevenlabs_auth_failed";

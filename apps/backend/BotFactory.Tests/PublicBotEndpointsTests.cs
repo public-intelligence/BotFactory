@@ -148,14 +148,9 @@ public class PublicBotEndpointsTests
         Assert.Contains("Voice is not enabled", body, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task CreatePublicChat_AnonymousCap_Returns429()
+    private async Task FillAnonymousCapAsync(Bot bot)
     {
-        // Avoid WithWebHostBuilder on the shared Database factory (dispose tears down SQL).
-        // Fill the default per-bot anonymous active-session cap (20), then assert 429.
-        var bot = await PublicBotTestHelper.SeedPublishedPublicBotAsync(_factory);
         const int defaultCap = 20;
-
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<BotFactoryDbContext>();
@@ -174,10 +169,65 @@ public class PublicBotEndpointsTests
             }
             await db.SaveChangesAsync();
         }
+    }
+
+    private static async Task<string?> ErrorTextAsync(HttpResponseMessage response) =>
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString();
+
+    [Fact]
+    public async Task CreatePublicChat_AnonymousCap_Returns429_WithTheDefaultMessageInUsted()
+    {
+        // Avoid WithWebHostBuilder on the shared Database factory (dispose tears down SQL).
+        // Fill the default per-bot anonymous active-session cap (20), then assert 429.
+        var bot = await PublicBotTestHelper.SeedPublishedPublicBotAsync(_factory);
+        await FillAnonymousCapAsync(bot);
 
         using var client = _factory.CreateClient();
         var response = await client.PostAsync($"/api/public/bots/{bot.PublicId}/chat?mode=text", null);
+
         Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal(BotErrorMessages.ConversationsLimitDefault, await ErrorTextAsync(response));
+    }
+
+    [Fact]
+    public async Task CreatePublicChat_AnonymousCap_Returns429_WithTheBotsOwnMessage()
+    {
+        var bot = await PublicBotTestHelper.SeedPublishedPublicBotAsync(
+            _factory, b => b.RateLimitMessage = "Estimado ciudadano: hay mucha demanda. Llame al *462.");
+        await FillAnonymousCapAsync(bot);
+
+        using var client = _factory.CreateClient();
+        var response = await client.PostAsync($"/api/public/bots/{bot.PublicId}/chat?mode=text", null);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal("Estimado ciudadano: hay mucha demanda. Llame al *462.", await ErrorTextAsync(response));
+    }
+
+    [Fact]
+    public async Task CreatePublicChat_PerMinuteLimit_Returns429_WithTheDefaultOrTheBotsOwnMessage()
+    {
+        // One request per minute for this bot: the second is rejected.
+        var plain = await PublicBotTestHelper.SeedPublishedPublicBotAsync(_factory, b => b.PublicRequestsPerMinute = 1);
+        var custom = await PublicBotTestHelper.SeedPublishedPublicBotAsync(_factory, b =>
+        {
+            b.PublicRequestsPerMinute = 1;
+            b.RateLimitMessage = "Hay mucha demanda en este momento.";
+        });
+
+        using var client = _factory.CreateClient();
+        foreach (var (bot, expected) in new[]
+        {
+            (plain, BotErrorMessages.RequestsLimitDefault),
+            (custom, "Hay mucha demanda en este momento."),
+        })
+        {
+            var first = await client.PostAsync($"/api/public/bots/{bot.PublicId}/chat?mode=text", null);
+            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+            var second = await client.PostAsync($"/api/public/bots/{bot.PublicId}/chat?mode=text", null);
+            Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode);
+            Assert.Equal(expected, await ErrorTextAsync(second));
+        }
     }
 
     [Fact]

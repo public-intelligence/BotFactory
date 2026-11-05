@@ -408,6 +408,69 @@ const ACCESS_MANAGE_PERMISSIONS = new Set(['superadmin', 'bot:admin', 'bot:publi
         </div>
       </section>
 
+      <!-- Mensajes de error -->
+      <section>
+        <h3 class="mb-1 inline-flex items-center text-base font-semibold text-neutral-900">
+          Mensajes de error
+          <app-info-tooltip
+            text="Lo que lee (y en voz, oye) la persona cuando el asistente no puede responder por una causa técnica, no por falta de información. Si dejas un campo vacío se usa el texto que aparece como ayuda dentro del campo. Hasta 500 caracteres."
+          />
+        </h3>
+        <p class="mb-4 text-xs text-neutral-500">
+          Se tratan de «usted», como el resto de las respuestas. Vacío = el texto por omisión.
+        </p>
+        <div class="space-y-5">
+          <div>
+            <label class="mb-1 inline-flex items-center text-sm font-medium text-neutral-900">
+              Límite de conversaciones o solicitudes
+              <app-info-tooltip
+                text="Se muestra al abrir el chat cuando se alcanzó un límite: demasiadas conversaciones activas o demasiadas solicitudes por minuto."
+              />
+            </label>
+            <textarea
+              rows="2"
+              maxlength="500"
+              [formControl]="form.controls.rateLimitMessage"
+              placeholder="El asistente está atendiendo demasiadas conversaciones. Intente de nuevo en unos minutos."
+              class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none"
+            ></textarea>
+            <p class="mt-1 text-xs text-neutral-400">{{ form.controls.rateLimitMessage.value.length }} de 500 caracteres.</p>
+          </div>
+          <div>
+            <label class="mb-1 inline-flex items-center text-sm font-medium text-neutral-900">
+              Saturación del modelo (cuota de Gemini)
+              <app-info-tooltip
+                text="Se muestra como respuesta cuando el modelo rechaza la consulta porque se agotó la cuota por minuto (error 429). En una llamada de voz, es lo que se dice."
+              />
+            </label>
+            <textarea
+              rows="2"
+              maxlength="500"
+              [formControl]="form.controls.quotaMessage"
+              placeholder="Estoy atendiendo muchas consultas en este momento. Intente de nuevo en un minuto."
+              class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none"
+            ></textarea>
+            <p class="mt-1 text-xs text-neutral-400">{{ form.controls.quotaMessage.value.length }} de 500 caracteres.</p>
+          </div>
+          <div>
+            <label class="mb-1 inline-flex items-center text-sm font-medium text-neutral-900">
+              Error o tiempo agotado
+              <app-info-tooltip
+                text="Se muestra como respuesta cuando el modelo falla o no contesta a tiempo (después de un reintento). En una llamada de voz, es lo que se dice."
+              />
+            </label>
+            <textarea
+              rows="2"
+              maxlength="500"
+              [formControl]="form.controls.errorMessage"
+              placeholder="Lo siento, no pude procesar eso."
+              class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none"
+            ></textarea>
+            <p class="mt-1 text-xs text-neutral-400">{{ form.controls.errorMessage.value.length }} de 500 caracteres.</p>
+          </div>
+        </div>
+      </section>
+
       <!-- Footer Actions -->
       <div
         class="flex items-center justify-end gap-3 border-t border-neutral-100 pt-6"
@@ -474,6 +537,9 @@ export class BotEditGeneral {
     similarityThreshold: [0.4],
     groundedOnlyMessage: [''],
     requireGrounding: [false],
+    rateLimitMessage: [''],
+    quotaMessage: [''],
+    errorMessage: [''],
     enableChat: [false],
     enableVoice: [true],
     requiresAuthentication: [true],
@@ -508,6 +574,9 @@ export class BotEditGeneral {
           similarityThreshold: bot.similarityThreshold,
           groundedOnlyMessage: bot.groundedOnlyMessage ?? '',
           requireGrounding: bot.requireGrounding ?? false,
+          rateLimitMessage: bot.rateLimitMessage ?? '',
+          quotaMessage: bot.quotaMessage ?? '',
+          errorMessage: bot.errorMessage ?? '',
           enableChat: bot.enableChat,
           enableVoice: bot.enableVoice,
           requiresAuthentication: bot.requiresAuthentication,
@@ -616,6 +685,9 @@ export class BotEditGeneral {
           similarityThreshold: bot.similarityThreshold,
           groundedOnlyMessage: bot.groundedOnlyMessage ?? '',
           requireGrounding: bot.requireGrounding ?? false,
+          rateLimitMessage: bot.rateLimitMessage ?? '',
+          quotaMessage: bot.quotaMessage ?? '',
+          errorMessage: bot.errorMessage ?? '',
           enableChat: bot.enableChat,
           enableVoice: bot.enableVoice,
           requiresAuthentication: bot.requiresAuthentication,
@@ -645,6 +717,10 @@ export class BotEditGeneral {
           similarityThreshold: values.similarityThreshold,
           groundedOnlyMessage: values.groundedOnlyMessage || null,
           requireGrounding: values.requireGrounding,
+          // "" clears a message back to its default; null would mean "no change".
+          rateLimitMessage: values.rateLimitMessage.trim(),
+          quotaMessage: values.quotaMessage.trim(),
+          errorMessage: values.errorMessage.trim(),
           enableChat: values.enableChat,
           enableVoice: values.enableVoice,
           requiresAuthentication: values.requiresAuthentication,

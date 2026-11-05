@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using BotFactory.Core.DTOs;
+using BotFactory.Core.Entities;
 using BotFactory.Tests.Infrastructure;
 
 namespace BotFactory.Tests;
@@ -187,6 +188,58 @@ public class BotApiTests
         var reloaded = await client.GetFromJsonAsync<BotResponse>($"/api/bots/{created.Id}");
         Assert.Equal("Pronunciation Limits Bot", reloaded!.BotName);
         Assert.Equal("ABC → a, be, ce", reloaded.PronunciationRules);
+    }
+
+    [Fact]
+    public async Task UpdateBot_ErrorMessages_AreTrimmed_ClearedToTheDefault_AndKeptWhenOmitted()
+    {
+        var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);
+        var created = await (await client.PostAsJsonAsync("/api/bots", new CreateBotRequest(
+            BotName: "Messages Bot",
+            UrlSlug: "messages-bot-errors"))).Content.ReadFromJsonAsync<BotResponse>();
+        Assert.NotNull(created);
+        Assert.Null(created.RateLimitMessage);
+        Assert.Null(created.QuotaMessage);
+        Assert.Null(created.ErrorMessage);
+
+        var saved = await (await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(
+            RateLimitMessage: "  Hay muchas personas. Intente en unos minutos.  ",
+            QuotaMessage: "Atendemos muchas consultas.",
+            ErrorMessage: "No pudimos responder."))).Content.ReadFromJsonAsync<BotResponse>();
+        Assert.Equal("Hay muchas personas. Intente en unos minutos.", saved!.RateLimitMessage);
+        Assert.Equal("Atendemos muchas consultas.", saved.QuotaMessage);
+        Assert.Equal("No pudimos responder.", saved.ErrorMessage);
+
+        // A save that does not mention them (another settings tab) leaves them as they were.
+        await client.PutAsJsonAsync($"/api/bots/{created.Id}", new { botName = "Messages Bot Renamed" });
+        var reloaded = await client.GetFromJsonAsync<BotResponse>($"/api/bots/{created.Id}");
+        Assert.Equal("Atendemos muchas consultas.", reloaded!.QuotaMessage);
+
+        // One cleared, the others untouched; an empty (or blank) text means «the default».
+        var cleared = await (await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(QuotaMessage: "   ")))
+            .Content.ReadFromJsonAsync<BotResponse>();
+        Assert.Null(cleared!.QuotaMessage);
+        Assert.Equal("No pudimos responder.", cleared.ErrorMessage);
+        Assert.Equal("Hay muchas personas. Intente en unos minutos.", cleared.RateLimitMessage);
+    }
+
+    [Fact]
+    public async Task UpdateBot_ErrorMessageOverTheLimit_IsRejected_AndNothingIsSaved()
+    {
+        var client = await TestAuthHelper.CreateAuthenticatedClientAsync(_factory);
+        var created = await (await client.PostAsJsonAsync("/api/bots", new CreateBotRequest(
+            BotName: "Messages Limits Bot",
+            UrlSlug: "messages-limits-bot"))).Content.ReadFromJsonAsync<BotResponse>();
+        Assert.NotNull(created);
+
+        var tooLong = await client.PutAsJsonAsync($"/api/bots/{created.Id}", new UpdateBotRequest(
+            BotName: "Should Not Be Saved",
+            QuotaMessage: new string('x', BotErrorMessages.MaxLength + 1)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+        Assert.Contains("Quota message", await tooLong.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var reloaded = await client.GetFromJsonAsync<BotResponse>($"/api/bots/{created.Id}");
+        Assert.Equal("Messages Limits Bot", reloaded!.BotName);
     }
 
     [Fact]

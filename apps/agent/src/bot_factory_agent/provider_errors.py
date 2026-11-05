@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 USER_MESSAGE_UNAVAILABLE = (
-    "El servicio no está disponible en este momento. Por favor, intenta más tarde."
+    "El servicio no está disponible en este momento. Por favor, intente más tarde."
 )
 
 CODE_ELEVENLABS_QUOTA_EXCEEDED = "elevenlabs_quota_exceeded"
