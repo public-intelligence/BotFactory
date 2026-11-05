@@ -165,6 +165,15 @@ public class ConversationService(
                 c.ClosedAt))
             .ToListAsync();
 
+        // The tokens of this page's conversations, for whoever may read telemetry.
+        if (items.Count > 0 && tenantContext.Has(Permissions.TelemetryRead))
+        {
+            var usage = await LoadTokenUsageAsync(items.Select(i => i.Id).ToList());
+            items = items
+                .Select(i => usage.TryGetValue(i.Id, out var tokens) ? i with { Tokens = tokens } : i)
+                .ToList();
+        }
+
         var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
         return new PaginatedResponse<ConversationResponse>(items, page, pageSize, totalCount, totalPages);
     }
@@ -233,6 +242,33 @@ public class ConversationService(
             conversation.ClosedAt,
             conversation.ClosedReason,
             messages,
-            allowedEvents);
+            allowedEvents,
+            hasTelemetryRead
+                ? (await LoadTokenUsageAsync([conversation.Id])).GetValueOrDefault(conversation.Id)
+                : null);
+    }
+
+    /// <summary>
+    /// The tokens each of these conversations spent: the sum of their `llm_usage` events. One query
+    /// for the whole page; a conversation with no recorded usage has no entry.
+    /// </summary>
+    private async Task<Dictionary<int, TokenUsageResponse>> LoadTokenUsageAsync(IReadOnlyCollection<int> conversationIds)
+    {
+        var rows = await db.TelemetryEvents
+            .Where(e => e.EventName == ConversationTokenUsage.EventName
+                        && e.ConversationId != null
+                        && conversationIds.Contains(e.ConversationId.Value))
+            .Select(e => new { ConversationId = e.ConversationId!.Value, e.Data })
+            .ToListAsync();
+
+        var usage = new Dictionary<int, TokenUsageResponse>();
+        foreach (var group in rows.GroupBy(r => r.ConversationId))
+        {
+            var sum = ConversationTokenUsage.Sum(group.Select(r => r.Data));
+            if (sum is not null)
+                usage[group.Key] = sum;
+        }
+
+        return usage;
     }
 }

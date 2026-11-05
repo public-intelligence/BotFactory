@@ -438,7 +438,7 @@ const ACCESS_MANAGE_PERMISSIONS = new Set(['superadmin', 'bot:admin', 'bot:publi
           </div>
           <div>
             <label class="mb-1 inline-flex items-center text-sm font-medium text-neutral-900">
-              Saturación del modelo (cuota de Gemini)
+              Cuota del modelo agotada
               <app-info-tooltip
                 text="Se muestra como respuesta cuando el modelo rechaza la consulta porque se agotó la cuota por minuto (error 429). En una llamada de voz, es lo que se dice."
               />

@@ -75,6 +75,29 @@ export interface TurnMetricsData {
   ttsTtfbMs: number | null;
 }
 
+/** A token count as the panel shows it: thousands separated, e.g. `58,632`. */
+export function formatTokenCount(n: number): string {
+  return n.toLocaleString('es-DO');
+}
+
+/** The tokens of a whole conversation (the API's `tokens`), in one line for the view's header. */
+export function tokenUsageLabel(u: {
+  totalTokens: number;
+  promptTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  thoughtsTokens: number;
+}): string {
+  const pct = u.promptTokens > 0 ? Math.round((100 * u.cachedTokens) / u.promptTokens) : 0;
+  const parts = [
+    `${formatTokenCount(u.totalTokens)} tokens`,
+    `entrada ${formatTokenCount(u.promptTokens)} (${pct} % caché)`,
+    `salida ${formatTokenCount(u.outputTokens)}`,
+  ];
+  if (u.thoughtsTokens > 0) parts.push(`razonamiento ${formatTokenCount(u.thoughtsTokens)}`);
+  return parts.join(' · ');
+}
+
 export type ConversationItem =
   | { kind: 'message'; occurredAt: string; data: MessageResponse }
   | { kind: 'event'; occurredAt: string; data: TelemetryEventResponse }
@@ -245,6 +268,52 @@ export function turnMetricsItem(e: TelemetryEventResponse): ConversationItem | n
   } catch {
     return null;
   }
+}
+
+/**
+ * What each answer cost, by message id. A turn is everything between two visitor messages: its
+ * summary (`backend_completed`) carries the tokens the turn spent, and the answer is the last
+ * assistant message of the same stretch. Taking the turn as a stretch, not as a pair, keeps this
+ * right whichever of the answer and the summary arrives first. An answer without a summary (the
+ * greeting, turns recorded before tokens were) is simply absent. Expects the items sorted.
+ */
+export function tokensByAnswer(items: ConversationItem[]): Map<number, TurnTokens> {
+  const byAnswer = new Map<number, TurnTokens>();
+  let answerId: number | null = null;
+  let spent: TurnTokens | null = null;
+
+  const close = () => {
+    if (answerId !== null && spent !== null) byAnswer.set(answerId, spent);
+    answerId = null;
+    spent = null;
+  };
+
+  for (const item of items) {
+    if (item.kind === 'message') {
+      if (item.data.role === 'User') close();
+      else answerId = item.data.id;
+    } else if (item.kind === 'turn-summary' && item.data.tokens) {
+      const t = item.data.tokens;
+      if (spent === null) {
+        spent = t;
+      } else {
+        const promptTokens = spent.promptTokens + t.promptTokens;
+        const cachedTokens = spent.cachedTokens + t.cachedTokens;
+        spent = {
+          promptTokens,
+          outputTokens: spent.outputTokens + t.outputTokens,
+          cachedTokens,
+          thoughtsTokens: spent.thoughtsTokens + t.thoughtsTokens,
+          calls: spent.calls + t.calls,
+          unreportedCalls: spent.unreportedCalls + t.unreportedCalls,
+          totalTokens: spent.totalTokens + t.totalTokens,
+          cachedPercent: promptTokens > 0 ? Math.round((100 * cachedTokens) / promptTokens) : 0,
+        };
+      }
+    }
+  }
+  close();
+  return byAnswer;
 }
 
 // Returns microseconds since epoch to preserve sub-millisecond ordering.

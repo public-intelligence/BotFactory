@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canSeeTelemetry,
   defaultChatHistoryDateRange,
   mapConversationStatusLabel,
   toUtcEndOfDay,
@@ -24,5 +25,13 @@ describe('bot-edit-chat-history helpers', () => {
   it('mapConversationStatusLabel translates known statuses', () => {
     expect(mapConversationStatusLabel('Paused')).toBe('En pausa');
     expect(mapConversationStatusLabel('Unknown')).toBe('Unknown');
+  });
+
+  it('canSeeTelemetry is for telemetry readers and administrators, not for everyone with chat access', () => {
+    expect(canSeeTelemetry(['telemetry:read'])).toBe(true);
+    expect(canSeeTelemetry(['superadmin'])).toBe(true);
+    expect(canSeeTelemetry(['bot:admin', 'conversation:read'])).toBe(true);
+    expect(canSeeTelemetry(['conversation:read', 'bot:read'])).toBe(false);
+    expect(canSeeTelemetry([])).toBe(false);
   });
 });

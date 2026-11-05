@@ -8,6 +8,19 @@ export const CHAT_HISTORY_STATUS_MAP: Record<string, string> = {
   Closed: 'Cerrada',
 };
 
+/**
+ * Whether the viewer may see telemetry: the events in a conversation's view and the tokens it
+ * spent. The API decides in the end (it sends no tokens or events to anyone else); this only
+ * keeps the interface from showing a column or a row that would be empty.
+ */
+export function canSeeTelemetry(permissions: readonly string[]): boolean {
+  return (
+    permissions.includes('telemetry:read') ||
+    permissions.includes('superadmin') ||
+    permissions.includes('bot:admin')
+  );
+}
+
 export function defaultChatHistoryDateRange(): { from: string; to: string } {
   const to = new Date();
   const from = new Date();
