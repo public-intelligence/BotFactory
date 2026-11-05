@@ -17,6 +17,9 @@ import {
   type TurnSegment,
   type TokenCounts,
   type TurnSummaryData,
+  type TurnTokens,
+  formatTokenCount,
+  tokensByAnswer,
 } from './conversation-item';
 import { TooltipFlipDirective } from './tooltip-flip.directive';
 import { linkifySegments } from '../chat/contact-extract';
@@ -147,6 +150,9 @@ const ERROR_EVENTS = new Set([
                   }
                   @if (item.data.provider) {
                     · {{ item.data.provider }}
+                  }
+                  @if (answerTokens(item); as tk) {
+                    · <span [title]="answerTokensTitle(tk)">{{ formatTokenCount(tk.totalTokens) }} tokens</span>
                   }
                 </p>
               </div>
@@ -387,6 +393,12 @@ export class ConversationFeedComponent {
 
   readonly selectedDisplayItem = signal<ToolDisplayItem | null>(null);
 
+  // What each answer cost. The summaries it comes from only exist when the viewer may read
+  // telemetry, so the public chat never shows it; showEvents is the second guard.
+  private readonly answerTokensById = computed(() =>
+    this.showEvents() ? tokensByAnswer(this.items()) : new Map<number, TurnTokens>(),
+  );
+
   readonly visibleItems = computed(() => {
     const all = this.items();
     if (this.showEvents()) return all;
@@ -608,6 +620,17 @@ export class ConversationFeedComponent {
       default:
         return 'bg-neutral-500/15 text-neutral-500';
     }
+  }
+
+  readonly formatTokenCount = formatTokenCount;
+
+  /** The tokens the turn behind this answer spent; null for anything else. */
+  answerTokens(item: ConversationItem): TurnTokens | null {
+    return item.kind === 'message' ? (this.answerTokensById().get(item.data.id) ?? null) : null;
+  }
+
+  answerTokensTitle(t: TurnTokens): string {
+    return this.tokensLabel(t);
   }
 
   formatTime(iso: string): string {

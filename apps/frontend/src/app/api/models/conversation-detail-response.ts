@@ -3,6 +3,7 @@
 
 import { MessageResponse } from '../models/message-response';
 import { TelemetryEventResponse } from '../models/telemetry-event-response';
+import { TokenUsageResponse } from '../models/token-usage-response';
 export interface ConversationDetailResponse {
   accessMode: string;
   botId: number;
@@ -18,5 +19,6 @@ export interface ConversationDetailResponse {
   sourceUrl: (string | null);
   status: string;
   surface: string;
+  tokens?: (TokenUsageResponse | null);
   userId: string;
 }

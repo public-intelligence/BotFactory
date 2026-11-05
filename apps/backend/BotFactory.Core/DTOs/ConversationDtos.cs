@@ -12,6 +12,22 @@ public record PublicChatStartRequest(
     string? ParentOrigin = null,
     bool? Embedded = null);
 
+/// <summary>
+/// The tokens a conversation spent, summed over every call it made to the chat model.
+/// <c>PromptTokens</c> already includes the cached part; <c>TotalTokens</c> is what the provider
+/// counted for the calls (prompt + output + thoughts).
+/// </summary>
+public record TokenUsageResponse(
+    int Calls,
+    long PromptTokens,
+    long CachedTokens,
+    long OutputTokens,
+    long ThoughtsTokens,
+    long TotalTokens);
+
+/// <param name="Tokens">
+/// Null when the caller may not read telemetry, or when the conversation has no recorded usage.
+/// </param>
 public record ConversationResponse(
     int Id,
     int BotId,
@@ -20,7 +36,8 @@ public record ConversationResponse(
     string AccessMode,
     int MessageCount,
     DateTime CreatedAt,
-    DateTime? ClosedAt);
+    DateTime? ClosedAt,
+    TokenUsageResponse? Tokens = null);
 
 public record ConversationDetailResponse(
     int Id,
@@ -37,7 +54,8 @@ public record ConversationDetailResponse(
     DateTime? ClosedAt,
     string? ClosedReason,
     List<MessageResponse> Messages,
-    List<TelemetryEventResponse>? Events);
+    List<TelemetryEventResponse>? Events,
+    TokenUsageResponse? Tokens = null);
 
 public record ChatSessionResponse(
     int ConversationId,

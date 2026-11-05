@@ -14,6 +14,8 @@ import type { ConversationDetailResponse } from '../../api/models/conversation-d
 import { AuthService } from '../../core/services/auth.service';
 import { ConversationStreamService } from '../../core/services/conversation-stream.service';
 import { ConversationFeedComponent } from '../conversations/conversation-feed';
+import { tokenUsageLabel } from '../conversations/conversation-item';
+import { canSeeTelemetry } from './bot-edit-chat-history.helpers';
 
 const STATUS_MAP: Record<string, string> = {
   Active: 'Activa',
@@ -54,6 +56,11 @@ const STATUS_MAP: Record<string, string> = {
                   · Duración: {{ duration(c.createdAt, c.closedAt) }}
                 }
               </p>
+              @if (c.tokens; as tk) {
+                <p class="mt-0.5 text-xs text-neutral-500" data-testid="conversation-tokens">
+                  Tokens: {{ tokensLabel(tk) }}
+                </p>
+              }
             }
           </div>
           <button
@@ -109,10 +116,9 @@ export class ConversationDetailDrawer {
   // into every stream item.
   protected readonly conversation = signal<ConversationDetailResponse | null>(null);
 
-  protected readonly canSeeEvents = computed(() => {
-    const perms = this.auth.user()?.permissions ?? [];
-    return perms.includes('telemetry:read') || perms.includes('superadmin') || perms.includes('bot:admin');
-  });
+  protected readonly canSeeEvents = computed(() => canSeeTelemetry(this.auth.user()?.permissions ?? []));
+
+  protected readonly tokensLabel = tokenUsageLabel;
 
   constructor() {
     effect(async () => {

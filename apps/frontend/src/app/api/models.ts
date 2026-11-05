@@ -49,6 +49,7 @@ export type { SystemLogEntryResponse } from './models/system-log-entry-response'
 export type { SystemLogTailResponse } from './models/system-log-tail-response';
 export type { TelemetryEventResponse } from './models/telemetry-event-response';
 export type { TokenExchangeBody } from './models/token-exchange-body';
+export type { TokenUsageResponse } from './models/token-usage-response';
 export type { ToolConnectionProbeResponse } from './models/tool-connection-probe-response';
 export type { ToolConnectionResponse } from './models/tool-connection-response';
 export type { ToolDefinitionResponse } from './models/tool-definition-response';

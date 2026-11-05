@@ -75,6 +75,29 @@ export interface TurnMetricsData {
   ttsTtfbMs: number | null;
 }
 
+/** A token count as the panel shows it: thousands separated, e.g. `58,632`. */
+export function formatTokenCount(n: number): string {
+  return n.toLocaleString('es-DO');
+}
+
+/** The tokens of a whole conversation (the API's `tokens`), in one line for the view's header. */
+export function tokenUsageLabel(u: {
+  totalTokens: number;
+  promptTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  thoughtsTokens: number;
+}): string {
+  const pct = u.promptTokens > 0 ? Math.round((100 * u.cachedTokens) / u.promptTokens) : 0;
+  const parts = [
+    `${formatTokenCount(u.totalTokens)} tokens`,
+    `entrada ${formatTokenCount(u.promptTokens)} (${pct} % caché)`,
+    `salida ${formatTokenCount(u.outputTokens)}`,
+  ];
+  if (u.thoughtsTokens > 0) parts.push(`razonamiento ${formatTokenCount(u.thoughtsTokens)}`);
+  return parts.join(' · ');
+}
+
 export type ConversationItem =
   | { kind: 'message'; occurredAt: string; data: MessageResponse }
   | { kind: 'event'; occurredAt: string; data: TelemetryEventResponse }
@@ -245,6 +268,52 @@ export function turnMetricsItem(e: TelemetryEventResponse): ConversationItem | n
   } catch {
     return null;
   }
+}
+
+/** Two stretches of the same turn added together. */
+function addTurnTokens(a: TurnTokens, b: TurnTokens): TurnTokens {
+  const promptTokens: number = a.promptTokens + b.promptTokens;
+  const cachedTokens: number = a.cachedTokens + b.cachedTokens;
+  return {
+    promptTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cachedTokens,
+    thoughtsTokens: a.thoughtsTokens + b.thoughtsTokens,
+    calls: a.calls + b.calls,
+    unreportedCalls: a.unreportedCalls + b.unreportedCalls,
+    totalTokens: a.totalTokens + b.totalTokens,
+    cachedPercent: promptTokens > 0 ? Math.round((100 * cachedTokens) / promptTokens) : 0,
+  };
+}
+
+/**
+ * What each answer cost, by message id. A turn is everything between two visitor messages: its
+ * summary (`backend_completed`) carries the tokens the turn spent, and the answer is the last
+ * assistant message of the same stretch. Taking the turn as a stretch, not as a pair, keeps this
+ * right whichever of the answer and the summary arrives first. An answer without a summary (the
+ * greeting, turns recorded before tokens were) is simply absent. Expects the items sorted.
+ */
+export function tokensByAnswer(items: ConversationItem[]): Map<number, TurnTokens> {
+  const byAnswer = new Map<number, TurnTokens>();
+  let answerId: number | null = null;
+  let spent: TurnTokens | null = null;
+
+  const close = () => {
+    if (answerId !== null && spent !== null) byAnswer.set(answerId, spent);
+    answerId = null;
+    spent = null;
+  };
+
+  for (const item of items) {
+    if (item.kind === 'message') {
+      if (item.data.role === 'User') close();
+      else answerId = item.data.id;
+    } else if (item.kind === 'turn-summary' && item.data.tokens) {
+      spent = spent === null ? item.data.tokens : addTurnTokens(spent, item.data.tokens);
+    }
+  }
+  close();
+  return byAnswer;
 }
 
 // Returns microseconds since epoch to preserve sub-millisecond ordering.

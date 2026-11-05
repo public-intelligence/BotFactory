@@ -22,6 +22,8 @@ import { getConversations } from '../../api/functions';
 import type { GetConversations$Params } from '../../api/fn/conversations/get-conversations';
 import type { ConversationResponse } from '../../api/models/conversation-response';
 import { ConversationDetailDrawer } from './conversation-detail-drawer';
+import { AuthService } from '../../core/services/auth.service';
+import { formatTokenCount } from '../conversations/conversation-item';
 import {
   formatDateInput,
   matchesDatePreset,
@@ -35,6 +37,7 @@ import {
   toUtcEndOfDay,
   toUtcStartOfDay,
   CHAT_HISTORY_STATUS_MAP,
+  canSeeTelemetry,
 } from './bot-edit-chat-history.helpers';
 
 const STATUS_OPTIONS = [
@@ -47,6 +50,8 @@ const STATUS_OPTIONS = [
 type ConversationTableRow = ConversationResponse & {
   _statusLabel: string;
   _date: string;
+  /** Tokens spent, formatted; «—» when the conversation has none recorded. */
+  _tokens: string;
 };
 
 @Component({
@@ -172,6 +177,7 @@ export class BotEditChatHistory implements OnInit {
   private readonly api = inject(Api);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
 
   // The opened conversation is reflected in the URL (`?conversationId=`) so it
   // can be deep-linked, survives refresh, and responds to the back button.
@@ -241,10 +247,13 @@ export class BotEditChatHistory implements OnInit {
   }
 
   ngOnInit() {
+    // Tokens come from telemetry: the column only exists for whoever may read it.
+    const showTokens = canSeeTelemetry(this.auth.user()?.permissions ?? []);
     this.columns = [
       { header: 'ID', field: 'id', width: '70px' },
       { header: 'Estado', template: this.statusTpl(), width: '110px' },
       { header: 'Mensajes', field: 'messageCount', width: '100px', align: 'center' },
+      ...(showTokens ? [{ header: 'Tokens', field: '_tokens', width: '110px', align: 'center' as const }] : []),
       { header: 'Fecha', template: this.dateTpl(), width: '160px' },
       { header: 'Acciones', template: this.actionsTpl(), width: '90px', align: 'center' },
     ];
@@ -355,6 +364,7 @@ export class BotEditChatHistory implements OnInit {
           ...c,
           _statusLabel: mapConversationStatusLabel(c.status),
           _date: this.formatDate(c.createdAt),
+          _tokens: c.tokens ? formatTokenCount(c.tokens.totalTokens) : '—',
         })),
         page: Number(result.page),
         pageSize: Number(result.pageSize),
