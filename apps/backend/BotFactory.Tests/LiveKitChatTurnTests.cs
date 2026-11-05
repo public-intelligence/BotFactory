@@ -873,6 +873,74 @@ public class LiveKitChatTurnTests
     }
 
     [Fact]
+    public async Task ChatTurn_QuotaWithTheBotsOwnMessage_IsWhatTheVisitorReadsAndHears()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.TooManyRequests, QuotaBody("57s"));
+
+        var (app, convId) = await AppWithConversationAsync(
+            handler, configureBot: b => b.QuotaMessage = "Mensaje de saturacion propio del bot.");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        // The answer in the chat, what the voice speaks and the error event's userMessage are one text.
+        Assert.Equal("Mensaje de saturacion propio del bot.", SpokenText(sse));
+        Assert.Equal("Mensaje de saturacion propio del bot.", (await MessagesOfAsync(app, convId))[^1].Content);
+        Assert.Contains("event: provider_error", sse, StringComparison.Ordinal);
+        Assert.Contains("\"userMessage\":\"Mensaje de saturacion propio del bot.\"", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain(ProviderErrorClassifier.UserMessageBusy, sse, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChatTurn_ErrorWithTheBotsOwnMessage_ReplacesTheServersFallback()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.BadRequest, """{"error":{"status":"INVALID_ARGUMENT"}}""");
+
+        var (app, convId) = await AppWithConversationAsync(
+            handler, fallbackMessage: "FALLBACK_DEL_SERVIDOR", configureBot: b => b.ErrorMessage = "Mensaje de error propio del bot.");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("Mensaje de error propio del bot.", SpokenText(sse));
+        Assert.Equal("Mensaje de error propio del bot.", (await MessagesOfAsync(app, convId))[^1].Content);
+        Assert.Contains("\"userMessage\":\"Mensaje de error propio del bot.\"", sse, StringComparison.Ordinal);
+        Assert.DoesNotContain("FALLBACK_DEL_SERVIDOR", sse, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChatTurn_ATimeoutWithTheBotsOwnErrorMessage_SaysIt()
+    {
+        // Both attempts stall: the turn gives up, and the words are the bot's, not the server's.
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueSlow(TimeSpan.FromSeconds(30), TextStream("No debe usarse."));
+        handler.EnqueueSlow(TimeSpan.FromSeconds(30), TextStream("No debe usarse."));
+
+        var (app, convId) = await AppWithConversationAsync(
+            handler, fallbackMessage: "FALLBACK_DEL_SERVIDOR", firstByteTimeoutSeconds: 1,
+            configureBot: b => b.ErrorMessage = "Tiempo agotado, mensaje propio.");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("Tiempo agotado, mensaje propio.", SpokenText(sse));
+        Assert.Equal("Tiempo agotado, mensaje propio.", (await MessagesOfAsync(app, convId))[^1].Content);
+    }
+
+    [Fact]
+    public async Task ChatTurn_ErrorWithoutAMessage_KeepsTheServersFallback()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.EnqueueError(HttpStatusCode.BadRequest, """{"error":{"status":"INVALID_ARGUMENT"}}""");
+
+        var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_DEL_SERVIDOR");
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("FALLBACK_DEL_SERVIDOR", (await MessagesOfAsync(app, convId))[^1].Content);
+        Assert.Contains(ProviderErrorClassifier.UserMessageUnavailable, sse, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ChatTurn_QuotaError_RecordsTheWaitGoogleAskedFor()
     {
         var handler = new ScriptedGeminiHandler();

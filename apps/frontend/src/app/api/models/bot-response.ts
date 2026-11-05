@@ -11,6 +11,7 @@ export interface BotResponse {
   enableTts: boolean;
   enableTypingSound: boolean;
   enableVoice: boolean;
+  errorMessage?: (string | null);
   greetingMessage: (string | null);
   groundedOnlyMessage: (string | null);
   hasCustomLogo: boolean;
@@ -28,6 +29,8 @@ export interface BotResponse {
   publicId: string;
   publicRequestsPerMinute: (number | null);
   publishedState: string;
+  quotaMessage?: (string | null);
+  rateLimitMessage?: (string | null);
   requireGrounding?: boolean;
   requiresAuthentication: boolean;
   silenceEndMs: number;

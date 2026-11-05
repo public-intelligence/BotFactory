@@ -135,6 +135,12 @@ public static class BotEndpoints
             if (pronunciationError is not null)
                 return Results.BadRequest(new { error = pronunciationError });
 
+            var messageError = BotErrorMessages.Validate(request.RateLimitMessage, "Rate limit message")
+                ?? BotErrorMessages.Validate(request.QuotaMessage, "Quota message")
+                ?? BotErrorMessages.Validate(request.ErrorMessage, "Error message");
+            if (messageError is not null)
+                return Results.BadRequest(new { error = messageError });
+
             existing.ApplyUpdate(request);
             BotUpdateHelper.ApplyGreetingFromJson(doc.RootElement, existing);
 
@@ -291,7 +297,10 @@ public static class BotEndpoints
         bot.CreatedAt, bot.UpdatedAt,
         bot.RequireGrounding,
         bot.TranscriptionVocabulary,
-        bot.PronunciationRules);
+        bot.PronunciationRules,
+        bot.RateLimitMessage,
+        bot.QuotaMessage,
+        bot.ErrorMessage);
 
     internal static bool ResolveSessionMode(string? mode, Bot bot) => mode?.Trim().ToLowerInvariant() switch
     {

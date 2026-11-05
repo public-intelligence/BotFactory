@@ -609,7 +609,7 @@ public sealed class ChatTurnService : IChatTurnService
                 // The model ended the turn with no text at all (observed after
                 // tool-error payloads) or with whitespace only. Never leave the
                 // user with a silent, empty answer — stream the fallback instead.
-                var emptyFallback = _chatOptions.Value.FallbackMessage;
+                var emptyFallback = BotErrorMessages.Resolve(bot.ErrorMessage, _chatOptions.Value.FallbackMessage);
                 buffer.Clear();
                 buffer.Append(emptyFallback);
                 try
@@ -638,11 +638,15 @@ public sealed class ChatTurnService : IChatTurnService
                 ? pse.Info
                 : null;
 
+            // What the visitor reads for this failure: the bot's own words when it has them
+            // (one for a spent quota, one for any other error), the platform's otherwise. The same
+            // text is the answer in the chat, what a voice call speaks and the error event's userMessage.
+            var isQuota = errInfo?.ErrorCode == ProviderErrorClassifier.CodeGeminiQuotaExceeded;
             if (errInfo is not null)
             {
                 providerError = new ChatTurnProviderError(
                     errInfo.ErrorCode,
-                    errInfo.UserMessage,
+                    BotErrorMessages.Resolve(isQuota ? bot.QuotaMessage : bot.ErrorMessage, errInfo.UserMessage),
                     errInfo.OperatorMessage);
             }
 
@@ -650,9 +654,9 @@ public sealed class ChatTurnService : IChatTurnService
             {
                 // A spent quota gets its own words (what is happening, what to do) instead of
                 // the generic «no pude procesar eso»; the same text is spoken in a voice call.
-                var fallback = errInfo?.ErrorCode == ProviderErrorClassifier.CodeGeminiQuotaExceeded
-                    ? errInfo.UserMessage
-                    : _chatOptions.Value.FallbackMessage;
+                var fallback = isQuota
+                    ? providerError!.UserMessage
+                    : BotErrorMessages.Resolve(bot.ErrorMessage, _chatOptions.Value.FallbackMessage);
                 buffer.Clear();
                 buffer.Append(fallback);
                 try

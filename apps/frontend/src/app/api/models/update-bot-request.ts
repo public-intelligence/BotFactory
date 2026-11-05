@@ -10,6 +10,7 @@ export interface UpdateBotRequest {
   enableTts?: (boolean | null);
   enableTypingSound?: (boolean | null);
   enableVoice?: (boolean | null);
+  errorMessage?: (string | null);
   greetingMessage?: (string | null);
   groundedOnlyMessage?: (string | null);
   interruptionMinDurationMs?: (number | null);
@@ -20,6 +21,8 @@ export interface UpdateBotRequest {
   pronunciationRules?: (string | null);
   publicRequestsPerMinute?: (number | null);
   publishedState?: (string | null);
+  quotaMessage?: (string | null);
+  rateLimitMessage?: (string | null);
   requireGrounding?: (boolean | null);
   requiresAuthentication?: (boolean | null);
   silenceEndMs?: (number | null);

@@ -59,7 +59,12 @@ public record UpdateBotRequest(
     // Words the speech recogniser should favour, one per line; "" clears; null = no change.
     string? TranscriptionVocabulary = null,
     // How the voice should say what the text writes, «written → spoken» per line; "" clears; null = no change.
-    string? PronunciationRules = null);
+    string? PronunciationRules = null,
+    // What the visitor reads when a limit is hit opening the chat / the model's quota is spent / the
+    // model fails; "" clears back to the default; null = no change.
+    string? RateLimitMessage = null,
+    string? QuotaMessage = null,
+    string? ErrorMessage = null);
 
 public record BotResponse(
     int Id,
@@ -103,7 +108,10 @@ public record BotResponse(
     DateTime UpdatedAt,
     bool RequireGrounding = false,
     string TranscriptionVocabulary = "",
-    string PronunciationRules = "");
+    string PronunciationRules = "",
+    string? RateLimitMessage = null,
+    string? QuotaMessage = null,
+    string? ErrorMessage = null);
 
 /// <summary>
 /// What the public chat page needs to render a bot, and nothing of how it is configured:
