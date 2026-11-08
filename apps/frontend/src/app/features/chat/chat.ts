@@ -1330,6 +1330,7 @@ export class Chat implements OnDestroy {
     this.connecting.set(false);
     if (message) this.error.set(message);
     else this.error.set(null);
+    await this.moveConversationToText();
 
     const bot = this.bot();
     const convId = this.conversationId();
@@ -1353,6 +1354,24 @@ export class Chat implements OnDestroy {
     this.lk.clearSessionPaused();
     this.lk.clearPipelineError();
     this.chatOpen.set(false);
+    await this.moveConversationToText();
+  }
+
+  /**
+   * The call is over and the person goes on by text. Tell Bot Factory: the conversation moves to the text
+   * channel (otherwise it keeps the voice rule and is closed after about 30 s without messages, and the
+   * bot loses what was said) and the call's room is retired, which frees the agent and its
+   * speech-recognition slot at once instead of minutes later. Best effort: the chat works either way.
+   */
+  private async moveConversationToText(): Promise<void> {
+    const bot = this.bot();
+    const convId = this.conversationId();
+    if (!bot || convId === null) return;
+    try {
+      await this.resumeConversationForMode(bot, convId, 'text');
+    } catch {
+      // Nothing to show: the room times out on its own and the next message reopens the conversation if needed.
+    }
   }
 
   private async switchToVoiceMode(): Promise<void> {
@@ -1386,6 +1405,8 @@ export class Chat implements OnDestroy {
       const message =
         err instanceof Error ? err.message : 'No se pudo activar la voz.';
       this.error.set(message);
+      // The call never started: its room (and agent) must not wait out LiveKit's timeout.
+      await this.moveConversationToText();
     } finally {
       this.connecting.set(false);
     }

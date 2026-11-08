@@ -202,7 +202,7 @@ public static class BotEndpoints
             IBotService botService,
             ITenantContext tenant,
             IAppSettingService appSettingService,
-            LiveKitService liveKitService,
+            IVoiceRoomLifecycle voiceRooms,
             IConversationGreetingService greetingService,
             BotFactoryDbContext db,
             ILogger<Bot> logger,
@@ -247,7 +247,9 @@ public static class BotEndpoints
 
             var metadata = VoiceChatRoomHelper.BuildRoomMetadata(bot, conversationId);
             var roomName = VoiceChatRoomHelper.NewRoomName(conversationId, isResume: false);
-            var result = await liveKitService.CreateRoomAsync(metadata, new AgentJobMetadata(elevenLabsKey), VoiceChatRoomHelper.AgentName, roomName);
+            var result = await voiceRooms.OpenAsync(
+                conversation, metadata, new AgentJobMetadata(elevenLabsKey), VoiceChatRoomHelper.AgentName, roomName,
+                cancellationToken: cancellationToken);
 
             logger.LogInformation("Chat room created for bot {BotId}: {RoomName}", bot.Id, result.RoomName);
 

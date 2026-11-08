@@ -106,4 +106,33 @@ public class LiveKitRoomRequestTests
         using var json = JsonDocument.Parse(request.Metadata);
         Assert.Equal(0, json.RootElement.GetProperty("transcriptionVocabulary").GetArrayLength());
     }
+
+    [Fact]
+    public void TheRoomClosesByItself_ASoonAfterNobodyJoins_AndTwentySecondsAfterEveryoneLeaves()
+    {
+        // A call that never connects must not keep its agent (and a speech-recognition slot) for LiveKit's
+        // default five minutes; the 20 s after leaving is the window to come back after a network drop.
+        var request = LiveKitService.BuildCreateRoomRequest(
+            VoiceChatRoomHelper.BuildRoomMetadata(NewBot(), 42), new AgentJobMetadata(ApiKey), VoiceChatRoomHelper.AgentName, "42");
+
+        Assert.Equal(60u, request.EmptyTimeout);
+        Assert.Equal(20u, request.DepartureTimeout);
+    }
+
+    [Fact]
+    public void TheRoomTimeouts_FollowTheConfiguration_AndAreNeverZero()
+    {
+        var metadata = VoiceChatRoomHelper.BuildRoomMetadata(NewBot(), 42);
+
+        var configured = LiveKitService.BuildCreateRoomRequest(
+            metadata, new AgentJobMetadata(ApiKey), VoiceChatRoomHelper.AgentName, "42", 90, 30);
+        var zero = LiveKitService.BuildCreateRoomRequest(
+            metadata, new AgentJobMetadata(ApiKey), VoiceChatRoomHelper.AgentName, "42", 0, 0);
+
+        Assert.Equal(90u, configured.EmptyTimeout);
+        Assert.Equal(30u, configured.DepartureTimeout);
+        // 0 would mean «LiveKit's default» (five minutes): the very thing this avoids.
+        Assert.Equal(1u, zero.EmptyTimeout);
+        Assert.Equal(1u, zero.DepartureTimeout);
+    }
 }

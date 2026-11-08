@@ -118,7 +118,7 @@ public static class ConversationEndpoints
             IBotService botService,
             IConversationService conversationService,
             IAppSettingService appSettingService,
-            LiveKitService liveKitService,
+            IVoiceRoomLifecycle voiceRooms,
             ITenantContext tenant,
             BotFactoryDbContext db,
             ILogger<Program> logger,
@@ -171,6 +171,9 @@ public static class ConversationEndpoints
                         return Results.Conflict(new { error = "Conversation cannot be resumed." });
                 }
 
+                // Back to text: the voice call is over, so its room goes and the agent in it leaves now.
+                await voiceRooms.RetireAsync(conversation, cancellationToken);
+
                 logger.LogInformation(
                     "Text chat resumed for bot {BotId} conversation {ConversationId}",
                     bot.Id,
@@ -191,7 +194,9 @@ public static class ConversationEndpoints
 
             var metadata = VoiceChatRoomHelper.BuildRoomMetadata(bot, id, isResume: true);
             var roomName = VoiceChatRoomHelper.NewRoomName(id, isResume: true);
-            var result = await liveKitService.CreateRoomAsync(metadata, new AgentJobMetadata(elevenLabsKey), VoiceChatRoomHelper.AgentName, roomName);
+            var result = await voiceRooms.OpenAsync(
+                conversation, metadata, new AgentJobMetadata(elevenLabsKey), VoiceChatRoomHelper.AgentName, roomName,
+                cancellationToken: cancellationToken);
 
             logger.LogInformation(
                 "Chat room resumed for bot {BotId} conversation {ConversationId}: {RoomName}",

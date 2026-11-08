@@ -15,6 +15,7 @@ public class ConversationService(
     ITelemetryService telemetry,
     ITenantContext tenantContext,
     ITenantContextSetter tenantSetter,
+    IVoiceRoomLifecycle voiceRooms,
     ILogger<ConversationService> logger) : IConversationService
 {
     public async Task<bool> PauseAsync(int conversationId, string pausedReason, CancellationToken cancellationToken = default)
@@ -103,6 +104,9 @@ public class ConversationService(
         conversation.UpdatedAt = now;
 
         await db.SaveChangesAsync(cancellationToken);
+
+        // A closed conversation has no call: its room, and the agent in it, go now.
+        await voiceRooms.RetireAsync(conversation, cancellationToken);
 
         // CloseAsync is the single chokepoint for end-of-conversation: user "Cerrar",
         // agent's Close telemetry event, and the stale-conversation Hangfire job all

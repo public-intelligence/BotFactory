@@ -84,3 +84,13 @@ def test_agent_event_shape() -> None:
     d = ev.to_json_dict()
     assert d["eventType"] == "Error"
     assert d["data"] == {"k": "v"}
+    # Without a room (older callers) the JSON has no roomName, as before.
+    assert "roomName" not in d
+
+
+def test_agent_event_carries_the_room_it_comes_from() -> None:
+    ev = agent_event("Close", 1, 2, {"reason": "job_shutdown"}, room_name="2-r1793921333413")
+    assert ev.room_name == "2-r1793921333413"
+    d = ev.to_json_dict()
+    assert d["roomName"] == "2-r1793921333413"
+    assert d["data"] == {"reason": "job_shutdown"}

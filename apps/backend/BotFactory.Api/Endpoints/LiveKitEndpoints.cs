@@ -254,14 +254,28 @@ public static class LiveKitEndpoints
                 await telemetry.EmitAsync(emit, cancellationToken);
             }
 
+            // Only the conversation's current voice call may change its state. An event from a room that
+            // is no longer its own (a call that was replaced, an agent leaving after the person went back
+            // to text) is recorded like any other, but it must not pause or close the conversation.
+            // Agents that do not say which room they are in (older ones) are treated as before.
+            var staleCall = conv is not null
+                && request.RoomName is not null
+                && conv.VoiceRoomName is not null
+                && !string.Equals(request.RoomName, conv.VoiceRoomName, StringComparison.Ordinal);
+            var inTextChannel = conv is not null && conv.Channel == ConversationChannels.Text;
+            var ignoreStateChange = staleCall || inTextChannel;
+
             if (string.Equals(request.EventType, "SessionPaused", StringComparison.Ordinal))
             {
-                var pausedReason = MapPausedReason(request.Data);
-                await conversationService.PauseAsync(request.ConversationId, pausedReason, cancellationToken);
+                if (!ignoreStateChange)
+                {
+                    var pausedReason = MapPausedReason(request.Data);
+                    await conversationService.PauseAsync(request.ConversationId, pausedReason, cancellationToken);
+                }
             }
             else if (string.Equals(request.EventType, "Close", StringComparison.Ordinal))
             {
-                if (conv is null)
+                if (conv is null || ignoreStateChange)
                     return Results.NoContent();
 
                 if (conv.Status == ConversationStatus.Paused)
@@ -346,4 +360,6 @@ public record TelemetryEventRequest(
     int BotId,
     int ConversationId,
     string Timestamp,
-    JsonElement? Data = null);
+    JsonElement? Data = null,
+    // The LiveKit room the agent is in, so the API can tell its events from those of a call that was replaced.
+    string? RoomName = null);
