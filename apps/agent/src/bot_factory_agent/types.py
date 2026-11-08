@@ -66,6 +66,9 @@ class AgentEventPayload:
     conversation_id: int
     timestamp: str
     data: dict[str, Any] | None = None
+    # The LiveKit room this agent is in. Bot Factory uses it to tell the events of the conversation's
+    # current call from those of one that was replaced (its agent may still be leaving).
+    room_name: str | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
         # Omit `data` when absent so payloads match agent-js / JSON.stringify(undefined) behavior.
@@ -77,4 +80,6 @@ class AgentEventPayload:
         }
         if self.data is not None:
             d["data"] = self.data
+        if self.room_name is not None:
+            d["roomName"] = self.room_name
         return d

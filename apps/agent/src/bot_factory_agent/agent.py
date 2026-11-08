@@ -23,7 +23,7 @@ from livekit.plugins import elevenlabs, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from bot_factory_agent.agent_helpers import (
-    agent_event as _agent_event,
+    agent_event,
     enriched_error_data as _enriched_error_data,
     metrics_to_data as _metrics_to_data,
     require_eleven_key as _require_eleven_key,
@@ -169,6 +169,16 @@ async def entrypoint(ctx: JobContext) -> None:
     # ctx.job.metadata carries the secrets, which only this worker receives.
     ctx.log_context_fields = {"room": ctx.room.name}
     logger.info("job entry room=%s job_id=%s", ctx.room.name, ctx.job.id)
+
+    def _agent_event(
+        event_type: str,
+        bot_id: int,
+        conversation_id: int,
+        data: dict[str, Any] | None = None,
+    ):
+        # Every event says which room it comes from: when a call is replaced or ends, its agent can still
+        # be leaving, and Bot Factory ignores what it says once the room is no longer the conversation's.
+        return agent_event(event_type, bot_id, conversation_id, data, room_name=ctx.room.name)
 
     # Resolve room metadata with retries: at job-dispatch time the room snapshot
     # is sometimes empty even when LiveKit has the metadata server-side (the

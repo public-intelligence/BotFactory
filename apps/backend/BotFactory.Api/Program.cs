@@ -300,6 +300,8 @@ builder.Services.AddOptions<LiveKitOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 builder.Services.AddSingleton<LiveKitService>();
+builder.Services.AddSingleton<ILiveKitRooms>(sp => sp.GetRequiredService<LiveKitService>());
+builder.Services.AddScoped<IVoiceRoomLifecycle, VoiceRoomLifecycle>();
 
 // Public anonymous access: token minting + per-IP rate limiting for the
 // /api/public and /api/embed surfaces. Per-bot/per-org fixed-window caps

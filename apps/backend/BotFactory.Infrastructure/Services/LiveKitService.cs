@@ -39,7 +39,25 @@ public record RoomMetadata(
 /// </summary>
 public record AgentJobMetadata(string ElevenLabsApiKey);
 
-public class LiveKitService
+/// <summary>
+/// What the API needs from LiveKit to run a voice call: open a room (with its agent) and delete it.
+/// An interface so tests can stand in for the server.
+/// </summary>
+public interface ILiveKitRooms
+{
+    Task<LiveKitRoomResult> CreateRoomAsync(
+        RoomMetadata metadata,
+        AgentJobMetadata jobMetadata,
+        string agentName,
+        string? roomName = null,
+        TimeSpan? tokenTtl = null,
+        bool canPublishData = true);
+
+    /// <summary>Deletes the room, which disconnects whoever is in it, the agent included. Throws if LiveKit fails.</summary>
+    Task DeleteRoomAsync(string roomName);
+}
+
+public class LiveKitService : ILiveKitRooms
 {
     private static readonly JsonSerializerOptions CamelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -62,7 +80,9 @@ public class LiveKitService
     {
         roomName ??= metadata.ConversationId.ToString();
 
-        await _roomClient.CreateRoom(BuildCreateRoomRequest(metadata, jobMetadata, agentName, roomName));
+        await _roomClient.CreateRoom(BuildCreateRoomRequest(
+            metadata, jobMetadata, agentName, roomName,
+            _options.RoomEmptyTimeoutSeconds, _options.RoomDepartureTimeoutSeconds));
 
         var token = GenerateToken(
             roomName,
@@ -79,16 +99,24 @@ public class LiveKitService
         return new LiveKitRoomResult(roomName, token, wsUrl);
     }
 
+    public async Task DeleteRoomAsync(string roomName)
+        => await _roomClient.DeleteRoom(new DeleteRoomRequest { Room = roomName });
+
     public static CreateRoomRequest BuildCreateRoomRequest(
         RoomMetadata metadata,
         AgentJobMetadata jobMetadata,
         string agentName,
-        string roomName)
+        string roomName,
+        int emptyTimeoutSeconds = 60,
+        int departureTimeoutSeconds = 20)
     {
         var request = new CreateRoomRequest
         {
             Name = roomName,
             Metadata = JsonSerializer.Serialize(metadata, CamelCase),
+            // A room nobody joins, and a room everybody left, close on their own; the agent in them goes with them.
+            EmptyTimeout = (uint)Math.Max(1, emptyTimeoutSeconds),
+            DepartureTimeout = (uint)Math.Max(1, departureTimeoutSeconds),
         };
 
         request.Agents.Add(new RoomAgentDispatch

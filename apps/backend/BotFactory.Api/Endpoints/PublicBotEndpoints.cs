@@ -45,7 +45,7 @@ public static class PublicBotEndpoints
             IPublicRateLimiter rateLimiter,
             ITelemetryService telemetry,
             IAppSettingService appSettingService,
-            LiveKitService liveKitService,
+            IVoiceRoomLifecycle voiceRooms,
             IConversationGreetingService greetingService,
             BotFactoryDbContext db,
             ILogger<Bot> logger,
@@ -134,13 +134,15 @@ public static class PublicBotEndpoints
 
             var metadata = VoiceChatRoomHelper.BuildRoomMetadata(bot, conversationId);
             var roomName = VoiceChatRoomHelper.NewRoomName(conversationId, isResume: false);
-            var result = await liveKitService.CreateRoomAsync(
+            var result = await voiceRooms.OpenAsync(
+                conversation,
                 metadata,
                 new AgentJobMetadata(elevenLabsKey),
                 VoiceChatRoomHelper.AgentName,
                 roomName,
                 tokenTtl: TimeSpan.FromMinutes(Math.Max(1, options.LiveKitTokenTtlMinutes)),
-                canPublishData: false);
+                canPublishData: false,
+                cancellationToken: cancellationToken);
 
             logger.LogInformation("Anonymous voice session created for bot {BotId}: {RoomName}", bot.Id, result.RoomName);
             return Results.Ok(new PublicChatSessionResponse(
@@ -166,7 +168,7 @@ public static class PublicBotEndpoints
             ITelemetryService telemetry,
             ITenantContextSetter tenantSetter,
             IAppSettingService appSettingService,
-            LiveKitService liveKitService,
+            IVoiceRoomLifecycle voiceRooms,
             ITenantContext tenant,
             BotFactoryDbContext db,
             ILogger<Bot> logger,
@@ -220,6 +222,8 @@ public static class PublicBotEndpoints
 
             if (!useVoice)
             {
+                // Back to text: the voice call is over, so its room goes and the agent in it leaves now.
+                await voiceRooms.RetireAsync(conversation, cancellationToken);
                 logger.LogInformation("Anonymous text session resumed for bot {BotId} conversation {ConversationId}", bot.Id, id);
                 return Results.Ok(new PublicChatSessionResponse(id, publicToken.Token, publicToken.ExpiresAt));
             }
@@ -233,13 +237,15 @@ public static class PublicBotEndpoints
             var options = publicAccessOptions.Value;
             var metadata = VoiceChatRoomHelper.BuildRoomMetadata(bot, id, isResume: true);
             var roomName = VoiceChatRoomHelper.NewRoomName(id, isResume: true);
-            var result = await liveKitService.CreateRoomAsync(
+            var result = await voiceRooms.OpenAsync(
+                conversation,
                 metadata,
                 new AgentJobMetadata(elevenLabsKey),
                 VoiceChatRoomHelper.AgentName,
                 roomName,
                 tokenTtl: TimeSpan.FromMinutes(Math.Max(1, options.LiveKitTokenTtlMinutes)),
-                canPublishData: false);
+                canPublishData: false,
+                cancellationToken: cancellationToken);
 
             logger.LogInformation("Anonymous voice session resumed for bot {BotId} conversation {ConversationId}: {RoomName}",
                 bot.Id, id, result.RoomName);

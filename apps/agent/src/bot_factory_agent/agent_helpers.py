@@ -20,6 +20,7 @@ def agent_event(
     bot_id: int,
     conversation_id: int,
     data: dict[str, Any] | None = None,
+    room_name: str | None = None,
 ) -> AgentEventPayload:
     return AgentEventPayload(
         event_type=event_type,
@@ -27,6 +28,7 @@ def agent_event(
         conversation_id=conversation_id,
         timestamp=iso_ts(),
         data=data,
+        room_name=room_name,
     )
 
 

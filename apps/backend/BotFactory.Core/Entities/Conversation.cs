@@ -26,4 +26,14 @@ public class Conversation : BaseEntity
     /// for every conversation that predates the column.
     /// </summary>
     public string Channel { get; set; } = ConversationChannels.Voice;
+
+    /// <summary>
+    /// The LiveKit room of the conversation's current voice call, null when there is none. A
+    /// conversation has at most one: opening another call retires the previous room, and
+    /// going back to text or closing the conversation retires it too, so the agent behind it
+    /// leaves at once instead of waiting for LiveKit to time the room out. The agent's events
+    /// say which room they come from; the ones from a room that is no longer this one are
+    /// ignored (a retired agent must not pause or close the new call).
+    /// </summary>
+    public string? VoiceRoomName { get; set; }
 }

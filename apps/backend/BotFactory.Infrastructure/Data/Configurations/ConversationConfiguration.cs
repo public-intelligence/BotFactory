@@ -20,6 +20,7 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.AccessMode).IsRequired().HasMaxLength(20);
         builder.Property(c => c.Surface).IsRequired().HasMaxLength(20);
         builder.Property(c => c.Channel).IsRequired().HasMaxLength(10);
+        builder.Property(c => c.VoiceRoomName).HasMaxLength(100);
         builder.Property(c => c.SourceUrl).HasMaxLength(2000);
         builder.Property(c => c.ParentOrigin).HasMaxLength(500);
 
