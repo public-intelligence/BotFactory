@@ -1066,6 +1066,133 @@ public class LiveKitChatTurnTests
         Assert.True(turn.RootElement.GetProperty("continued").GetBoolean());
     }
 
+    [Fact]
+    public async Task ChatTurn_RequestBlockedByGoogle_RecordsWhyTheAnswerIsEmpty()
+    {
+        // Google refuses the request: no candidate, only promptFeedback. The visitor gets the
+        // error message; the event keeps Google's reason, for any bot.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue("data: {\"promptFeedback\":{\"blockReason\":\"PROHIBITED_CONTENT\"},"
+                        + "\"usageMetadata\":{\"promptTokenCount\":900,\"totalTokenCount\":900}}\n\n");
+
+        var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_BLOCKED");
+        using var _ = app;
+        await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("FALLBACK_BLOCKED", (await MessagesOfAsync(app, convId))[^1].Content);
+        var noAnswer = Assert.Single(await TelemetryOfAsync(app, convId, "llm_no_answer"));
+        Assert.Contains("blockReason=PROHIBITED_CONTENT", noAnswer.Summary!, StringComparison.Ordinal);
+        using var data = JsonDocument.Parse(noAnswer.Data!);
+        Assert.Equal("PROHIBITED_CONTENT", data.RootElement.GetProperty("blockReason").GetString());
+
+        var usage = Assert.Single(await TelemetryOfAsync(app, convId, "llm_usage"));
+        Assert.Contains("blocked=PROHIBITED_CONTENT", usage.Summary!, StringComparison.Ordinal);
+    }
+
+    // Google refusing a call: a blocked request (CidPrueba, conversation 2404) or a withheld answer (TAINA, 2401).
+    private const string RequestRefused =
+        "data: {\"promptFeedback\":{\"blockReason\":\"PROHIBITED_CONTENT\"},"
+        + "\"usageMetadata\":{\"promptTokenCount\":463,\"totalTokenCount\":463}}\n\n";
+
+    private const string AnswerWithheld =
+        "data: {\"candidates\":[{\"finishReason\":\"SAFETY\",\"safetyRatings\":["
+        + "{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"probability\":\"HIGH\",\"blocked\":true}]}]}\n\n";
+
+    [Fact]
+    public async Task Grounded_ForcedLookupRefusedByGoogle_IsRepeatedOnceWithoutForcing()
+    {
+        // TAINA, «Mi papá le pega a mi hermanito de 6 años»: Google refuses the call that forces
+        // a lookup (PROHIBITED_CONTENT) and answers the same call when the lookup is not forced.
+        // The answer comes from the bot's prompt, so it passes the gate.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(AnswerWithheld);
+        handler.Enqueue(TextStream("Si hay peligro, llame al 911. Para denunciar el maltrato, llame a la línea 700."));
+
+        var (app, convId) = await GroundedAppAsync(
+            handler,
+            masterPrompt: "Maltrato infantil: línea 700. Peligro inmediato: 911.");
+        using var _ = app;
+        await PostTurnAsync(app, convId, "Pregunta delicada");
+
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Equal("ANY", ToolChoiceOf(handler.RequestBodies[0]));
+        Assert.Equal("AUTO", ToolChoiceOf(handler.RequestBodies[1]));
+        Assert.Equal(
+            "Si hay peligro, llame al 911. Para denunciar el maltrato, llame a la línea 700.",
+            (await MessagesOfAsync(app, convId))[^1].Content);
+
+        var noAnswer = Assert.Single(await TelemetryOfAsync(app, convId, "llm_no_answer"));
+        Assert.Contains("finishReason=SAFETY", noAnswer.Summary!, StringComparison.Ordinal);
+        Assert.Contains("DANGEROUS_CONTENT=HIGH (bloqueó)", noAnswer.Summary!, StringComparison.Ordinal);
+        Assert.Contains("consulta obligatoria (ANY)", noAnswer.Summary!, StringComparison.Ordinal);
+        Assert.Contains("se repite sin consulta obligatoria", noAnswer.Summary!, StringComparison.Ordinal);
+        using var data = JsonDocument.Parse(noAnswer.Data!);
+        Assert.Equal("ANY", data.RootElement.GetProperty("toolMode").GetString());
+        Assert.True(data.RootElement.GetProperty("retryUnforced").GetBoolean());
+
+        using var turn = JsonDocument.Parse(Assert.Single(await TelemetryOfAsync(app, convId, "backend_completed")).Data!);
+        Assert.True(turn.RootElement.GetProperty("unforcedRetry").GetBoolean());
+        Assert.Equal("ok", turn.RootElement.GetProperty("outcome").GetString());
+    }
+
+    [Fact]
+    public async Task Grounded_AnswerAfterTheRefusal_StillLosesAnInventedNumber()
+    {
+        // Not forcing the lookup relaxes nothing else: a number that is in no source stays out.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(RequestRefused);
+        handler.Enqueue(TextStream("Busque ayuda de inmediato. Llame al 809-555-0000."));
+
+        var (app, convId) = await GroundedAppAsync(handler);
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Pregunta delicada");
+
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.DoesNotContain("555", sse, StringComparison.Ordinal);
+        var answer = (await MessagesOfAsync(app, convId))[^1].Content;
+        Assert.StartsWith("Busque ayuda de inmediato.", answer, StringComparison.Ordinal);
+        Assert.DoesNotContain("555", answer, StringComparison.Ordinal);
+        Assert.EndsWith("SIN_RESPALDO", answer, StringComparison.Ordinal);
+        Assert.Single(await TelemetryOfAsync(app, convId, "grounding_blocked"));
+    }
+
+    [Fact]
+    public async Task Grounded_RefusedAgainWithoutForcing_GivesTheErrorMessage_AndIsNotRepeatedTwice()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(RequestRefused);
+        handler.Enqueue(RequestRefused);
+
+        var (app, convId) = await GroundedAppAsync(handler);
+        using var _ = app;
+        await PostTurnAsync(app, convId, "Pregunta delicada");
+
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Equal("FALLBACK_GROUNDED", (await MessagesOfAsync(app, convId))[^1].Content);
+        var refusals = await TelemetryOfAsync(app, convId, "llm_no_answer");
+        Assert.Equal(2, refusals.Count);
+        Assert.Contains(refusals, e => e.Summary!.Contains("con herramientas a su elección (AUTO)", StringComparison.Ordinal)
+                                       && !e.Summary.Contains("se repite", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Grounded_ForcedLookupEmptyForAnotherReason_IsNotRepeated()
+    {
+        // Only a refusal by Google is repeated: an empty answer that ended normally is not.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue("data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n");
+
+        var (app, convId) = await GroundedAppAsync(handler);
+        using var _ = app;
+        await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Single(handler.RequestBodies);
+        Assert.Equal("FALLBACK_GROUNDED", (await MessagesOfAsync(app, convId))[^1].Content);
+        var noAnswer = Assert.Single(await TelemetryOfAsync(app, convId, "llm_no_answer"));
+        Assert.Contains("finishReason=STOP", noAnswer.Summary!, StringComparison.Ordinal);
+        Assert.DoesNotContain("se repite", noAnswer.Summary!, StringComparison.Ordinal);
+    }
+
     /// <summary>The request JSON with non-ASCII characters unescaped ("l\u00EDmite" → "límite").</summary>
     private static string Unescaped(string json)
     {
@@ -1148,6 +1275,8 @@ public class LiveKitChatTurnTests
         Assert.Equal("AUTO", ToolChoiceOf(handler.RequestBodies[1]));
         Assert.Equal(0.1, TemperatureOf(handler.RequestBodies[0]), 3);
         Assert.Equal("Puede hacerlo en línea.", (await MessagesOfAsync(app, convId))[^1].Content);
+        // A lookup and an answer: nothing to report as «no answer».
+        Assert.Empty(await TelemetryOfAsync(app, convId, "llm_no_answer"));
     }
 
     [Fact]
