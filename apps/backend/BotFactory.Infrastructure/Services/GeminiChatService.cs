@@ -58,6 +58,15 @@ public sealed record GeminiPromptBlocked(string Reason, string? SafetyRatings = 
 public static class GeminiSafety
 {
     /// <summary>
+    /// Google refused the call rather than the model finishing it: a request it blocked
+    /// (any <c>blockReason</c>), or an answer withheld for safety, prohibited content, a
+    /// blocklist or personal data.
+    /// </summary>
+    public static bool IsRefusal(string? finishReason, string? blockReason) =>
+        (!string.IsNullOrEmpty(blockReason) && blockReason != "BLOCK_REASON_UNSPECIFIED")
+        || finishReason is "SAFETY" or "PROHIBITED_CONTENT" or "BLOCKLIST" or "SPII";
+
+    /// <summary>
     /// The safety categories Google flagged, in one line: <c>DANGEROUS_CONTENT=MEDIUM, HARASSMENT=HIGH (bloqueó)</c>.
     /// Only categories above <c>NEGLIGIBLE</c> or that blocked count; null when there are none.
     /// </summary>

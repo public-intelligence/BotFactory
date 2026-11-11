@@ -124,6 +124,9 @@ public sealed class ChatTurnService : IChatTurnService
         var toolInvokes = 0;
         var toolCapReached = false;
         var continued = false;
+        // «Respaldo obligatorio»: Google refused the forced lookup and the call was repeated once
+        // without forcing it (see where a call gives no answer, below).
+        var unforcedRetry = false;
         // The current user question. It must remain in `contents` on EVERY
         // Gemini pass this turn — including the post-tool answer pass — or the
         // model loses the question and answers the previous topic (observed as
@@ -438,7 +441,18 @@ public sealed class ChatTurnService : IChatTurnService
                 if (string.IsNullOrWhiteSpace(passText.ToString())
                     && (calls.Count == 0 || toolChoice == ToolChoice.None))
                 {
-                    var why = DescribeNoAnswer(passFinish, passBlock, toolChoice, calls.Count);
+                    // «Respaldo obligatorio»: Google refuses to force a lookup on some content
+                    // (observed: a child-abuse question, PROHIBITED_CONTENT, only with the lookup
+                    // forced — the same bot answers it when the call is not forced). That call is
+                    // repeated once with the lookup left to the model. Nothing else is relaxed: the
+                    // model has the same prompt, knowledge base and tools, may still consult them,
+                    // and the gate keeps every datum that is in no source out of the answer.
+                    var retryUnforced = forcedPass
+                                        && calls.Count == 0
+                                        && !unforcedRetry
+                                        && GeminiSafety.IsRefusal(passFinish?.Reason, passBlock?.Reason);
+                    var why = DescribeNoAnswer(passFinish, passBlock, toolChoice, calls.Count)
+                              + (retryUnforced ? " · se repite sin consulta obligatoria" : "");
                     _logger.LogWarning(
                         "Gemini gave no answer for conversation {ConversationId}: {Why}",
                         conv.Id,
@@ -463,7 +477,15 @@ public sealed class ChatTurnService : IChatTurnService
                             toolMode = ToolModeName(toolChoice),
                             ignoredToolCalls = calls.Count,
                             outputTokens = callUsage?.OutputTokens,
+                            retryUnforced,
                         })));
+
+                    if (retryUnforced)
+                    {
+                        unforcedRetry = true;
+                        toolChoice = ToolChoice.Auto;
+                        continue;
+                    }
                 }
 
                 // A text answer ends the turn. So does any answer to a pass that forbade
@@ -790,6 +812,7 @@ public sealed class ChatTurnService : IChatTurnService
                     tokens = usageTotals.ToData(),
                     toolCapReached,
                     continued,
+                    unforcedRetry,
                     groundingBlocked = gate?.Blocked.Count ?? 0,
                     segments,
                 });
