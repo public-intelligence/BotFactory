@@ -1066,6 +1066,53 @@ public class LiveKitChatTurnTests
         Assert.True(turn.RootElement.GetProperty("continued").GetBoolean());
     }
 
+    [Fact]
+    public async Task ChatTurn_RequestBlockedByGoogle_RecordsWhyTheAnswerIsEmpty()
+    {
+        // Google refuses the request: no candidate, only promptFeedback. The visitor gets the
+        // error message; the event keeps Google's reason, for any bot.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue("data: {\"promptFeedback\":{\"blockReason\":\"PROHIBITED_CONTENT\"},"
+                        + "\"usageMetadata\":{\"promptTokenCount\":900,\"totalTokenCount\":900}}\n\n");
+
+        var (app, convId) = await AppWithConversationAsync(handler, fallbackMessage: "FALLBACK_BLOCKED");
+        using var _ = app;
+        await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal("FALLBACK_BLOCKED", (await MessagesOfAsync(app, convId))[^1].Content);
+        var noAnswer = Assert.Single(await TelemetryOfAsync(app, convId, "llm_no_answer"));
+        Assert.Contains("blockReason=PROHIBITED_CONTENT", noAnswer.Summary!, StringComparison.Ordinal);
+        using var data = JsonDocument.Parse(noAnswer.Data!);
+        Assert.Equal("PROHIBITED_CONTENT", data.RootElement.GetProperty("blockReason").GetString());
+
+        var usage = Assert.Single(await TelemetryOfAsync(app, convId, "llm_usage"));
+        Assert.Contains("blocked=PROHIBITED_CONTENT", usage.Summary!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Grounded_ForcedLookupAnsweredWithNothing_RecordsTheReasonAndTheForcedMode()
+    {
+        // What OGTIC saw with a child-abuse question: the forced first call came back with no
+        // lookup and no text, and only the error message reached the visitor.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue("data: {\"candidates\":[{\"finishReason\":\"SAFETY\",\"safetyRatings\":["
+                        + "{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"probability\":\"HIGH\",\"blocked\":true}]}]}\n\n");
+
+        var (app, convId) = await GroundedAppAsync(handler);
+        using var _ = app;
+        await PostTurnAsync(app, convId, "Pregunta delicada");
+
+        Assert.Single(handler.RequestBodies);
+        Assert.Equal("FALLBACK_GROUNDED", (await MessagesOfAsync(app, convId))[^1].Content);
+        var noAnswer = Assert.Single(await TelemetryOfAsync(app, convId, "llm_no_answer"));
+        Assert.Contains("finishReason=SAFETY", noAnswer.Summary!, StringComparison.Ordinal);
+        Assert.Contains("DANGEROUS_CONTENT=HIGH (bloqueó)", noAnswer.Summary!, StringComparison.Ordinal);
+        Assert.Contains("consulta obligatoria (ANY)", noAnswer.Summary!, StringComparison.Ordinal);
+        using var data = JsonDocument.Parse(noAnswer.Data!);
+        Assert.Equal("ANY", data.RootElement.GetProperty("toolMode").GetString());
+        Assert.Equal("SAFETY", data.RootElement.GetProperty("finishReason").GetString());
+    }
+
     /// <summary>The request JSON with non-ASCII characters unescaped ("l\u00EDmite" → "límite").</summary>
     private static string Unescaped(string json)
     {
@@ -1148,6 +1195,8 @@ public class LiveKitChatTurnTests
         Assert.Equal("AUTO", ToolChoiceOf(handler.RequestBodies[1]));
         Assert.Equal(0.1, TemperatureOf(handler.RequestBodies[0]), 3);
         Assert.Equal("Puede hacerlo en línea.", (await MessagesOfAsync(app, convId))[^1].Content);
+        // A lookup and an answer: nothing to report as «no answer».
+        Assert.Empty(await TelemetryOfAsync(app, convId, "llm_no_answer"));
     }
 
     [Fact]

@@ -185,6 +185,10 @@ public sealed class ChatTurnService : IChatTurnService
         // still record a call cut short by barge-in or an error, since Gemini bills
         // the tokens it had already counted.
         GeminiUsage? passUsage = null;
+        // How Google ended the call in flight: its finishReason (with finishMessage and the safety
+        // categories it flagged) or, for a request it refused outright, promptFeedback.blockReason.
+        GeminiFinish? passFinish = null;
+        GeminiPromptBlocked? passBlock = null;
         var geminiCallOpen = false;
         var geminiCalls = 0;
         var usageTotals = new TurnUsageTotals();
@@ -235,13 +239,15 @@ public sealed class ChatTurnService : IChatTurnService
                     Stage: "llm",
                     LatencyMs: ms,
                     Provider: "gemini",
-                    Summary: usage is null ? "usageMetadata not reported" : usage.Describe(),
+                    Summary: (usage is null ? "usageMetadata not reported" : usage.Describe()) + UnusualEnding(),
                     Data: JsonSerializer.SerializeToElement(new
                     {
                         model = _chatOptions.Value.ChatModel,
                         call = geminiCalls,
                         reported = usage is not null,
                         complete = completed,
+                        finishReason = passFinish?.Reason,
+                        blockReason = passBlock?.Reason,
                         promptTokens = usage?.PromptTokens,
                         outputTokens = usage?.OutputTokens,
                         cachedTokens = usage?.CachedTokens,
@@ -257,6 +263,17 @@ public sealed class ChatTurnService : IChatTurnService
             }
 
             return usage;
+        }
+
+        // The call's ending for the llm_usage line, only when it is not an ordinary one (STOP).
+        string UnusualEnding()
+        {
+            var ending = "";
+            if (passFinish is not null && passFinish.Reason != "STOP")
+                ending += $" finish={passFinish.Reason}";
+            if (passBlock is not null)
+                ending += $" blocked={passBlock.Reason}";
+            return ending;
         }
 
         await _telemetry.EmitAsync(new TelemetryEmit(
@@ -297,6 +314,8 @@ public sealed class ChatTurnService : IChatTurnService
                 for (var attempt = 1; ; attempt++)
                 {
                     passUsage = null;
+                    passFinish = null;
+                    passBlock = null;
                     geminiCallOpen = true;
                     calls.Clear();
                     finishReason = null;
@@ -350,6 +369,11 @@ public sealed class ChatTurnService : IChatTurnService
 
                                 case GeminiFinish f:
                                     finishReason = f.Reason;
+                                    passFinish = f;
+                                    break;
+
+                                case GeminiPromptBlocked b:
+                                    passBlock = b;
                                     break;
                             }
                         }
@@ -407,6 +431,40 @@ public sealed class ChatTurnService : IChatTurnService
                             thoughtsTokens = callUsage.ThoughtsTokens,
                         },
                 });
+
+                // Gemini ended the call with no text and no lookup it could act on: the visitor will
+                // get the error message, and what Google said about why is the only trace of the
+                // cause. Recorded for every bot, whatever the reason.
+                if (string.IsNullOrWhiteSpace(passText.ToString())
+                    && (calls.Count == 0 || toolChoice == ToolChoice.None))
+                {
+                    var why = DescribeNoAnswer(passFinish, passBlock, toolChoice, calls.Count);
+                    _logger.LogWarning(
+                        "Gemini gave no answer for conversation {ConversationId}: {Why}",
+                        conv.Id,
+                        why);
+                    await EmitBestEffortAsync(new TelemetryEmit(
+                        "llm_no_answer",
+                        EventSource.Backend,
+                        BotId: conv.BotId,
+                        ConversationId: conv.Id,
+                        UserId: conv.UserId,
+                        TurnId: request.TurnId,
+                        Stage: "llm",
+                        Provider: "gemini",
+                        Summary: why,
+                        Data: JsonSerializer.SerializeToElement(new
+                        {
+                            call = geminiCalls,
+                            finishReason = passFinish?.Reason,
+                            finishMessage = passFinish?.Message,
+                            blockReason = passBlock?.Reason,
+                            safetyRatings = passBlock?.SafetyRatings ?? passFinish?.SafetyRatings,
+                            toolMode = ToolModeName(toolChoice),
+                            ignoredToolCalls = calls.Count,
+                            outputTokens = callUsage?.OutputTokens,
+                        })));
+                }
 
                 // A text answer ends the turn. So does any answer to a pass that forbade
                 // tools: a model that still asks for one gets nothing more, which also
@@ -1157,6 +1215,45 @@ public sealed class ChatTurnService : IChatTurnService
                 ? (int)Math.Round(100.0 * CachedTokens / PromptTokens)
                 : 0,
         };
+    }
+
+    /// <summary>The function-calling mode a call was sent with, as Gemini names it.</summary>
+    private static string ToolModeName(ToolChoice toolChoice) => toolChoice switch
+    {
+        ToolChoice.None => "NONE",
+        ToolChoice.Required => "ANY",
+        _ => "AUTO",
+    };
+
+    /// <summary>
+    /// One line for the conversation's events: why Gemini gave no answer, in Google's own terms
+    /// (finishReason, blockReason, finishMessage, flagged safety categories), and what the call asked of it.
+    /// </summary>
+    private static string DescribeNoAnswer(
+        GeminiFinish? finish,
+        GeminiPromptBlocked? block,
+        ToolChoice toolChoice,
+        int ignoredToolCalls)
+    {
+        var parts = new List<string>();
+        if (block is not null)
+            parts.Add($"Google bloqueó la consulta (blockReason={block.Reason})");
+        if (finish is not null)
+            parts.Add($"finishReason={finish.Reason}");
+        if (block is null && finish is null)
+            parts.Add("Google no dio motivo");
+        if (!string.IsNullOrEmpty(finish?.Message))
+            parts.Add($"mensaje de Google: {TruncateForSummary(finish.Message, 200)}");
+        if ((block?.SafetyRatings ?? finish?.SafetyRatings) is { } ratings)
+            parts.Add($"categorías de seguridad: {ratings}");
+        parts.Add(toolChoice switch
+        {
+            ToolChoice.Required => "con consulta obligatoria (ANY)",
+            ToolChoice.None when ignoredToolCalls > 0 => $"pidió {ignoredToolCalls} herramienta(s) sin permiso (NONE)",
+            ToolChoice.None => "sin herramientas (NONE)",
+            _ => "con herramientas a su elección (AUTO)",
+        });
+        return "Gemini no respondió: " + string.Join(" · ", parts);
     }
 
     private static string MapTurnOutcome(string provider) => provider switch

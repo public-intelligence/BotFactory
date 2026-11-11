@@ -41,9 +41,55 @@ public sealed record GeminiUsage(
 
 /// <summary>
 /// Why Gemini stopped generating (<c>finishReason</c>): <c>STOP</c> for a normal end,
-/// <c>MAX_TOKENS</c> when the answer hit the output limit and was cut.
+/// <c>MAX_TOKENS</c> when the answer hit the output limit and was cut, <c>SAFETY</c>,
+/// <c>PROHIBITED_CONTENT</c>, <c>BLOCKLIST</c> or <c>SPII</c> when Google withheld it, among others.
+/// <paramref name="Message"/> is Google's <c>finishMessage</c> when it sends one;
+/// <paramref name="SafetyRatings"/> the safety categories it flagged (see <see cref="GeminiSafety.Describe"/>).
 /// </summary>
-public sealed record GeminiFinish(string Reason) : GeminiStreamEvent;
+public sealed record GeminiFinish(string Reason, string? Message = null, string? SafetyRatings = null) : GeminiStreamEvent;
+
+/// <summary>
+/// Google refused the request itself (<c>promptFeedback.blockReason</c>: <c>SAFETY</c>,
+/// <c>PROHIBITED_CONTENT</c>, <c>BLOCKLIST</c>, <c>OTHER</c>…). No candidate comes back,
+/// so the answer is empty.
+/// </summary>
+public sealed record GeminiPromptBlocked(string Reason, string? SafetyRatings = null) : GeminiStreamEvent;
+
+public static class GeminiSafety
+{
+    /// <summary>
+    /// The safety categories Google flagged, in one line: <c>DANGEROUS_CONTENT=MEDIUM, HARASSMENT=HIGH (bloqueó)</c>.
+    /// Only categories above <c>NEGLIGIBLE</c> or that blocked count; null when there are none.
+    /// </summary>
+    public static string? Describe(JsonElement ratings)
+    {
+        if (ratings.ValueKind != JsonValueKind.Array)
+            return null;
+
+        var flagged = new List<string>();
+        foreach (var rating in ratings.EnumerateArray())
+        {
+            if (rating.ValueKind != JsonValueKind.Object)
+                continue;
+            var category = rating.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String
+                ? c.GetString() ?? ""
+                : "";
+            var probability = rating.TryGetProperty("probability", out var p) && p.ValueKind == JsonValueKind.String
+                ? p.GetString() ?? ""
+                : "";
+            var blocked = rating.TryGetProperty("blocked", out var b) && b.ValueKind == JsonValueKind.True;
+            if (!blocked && (probability.Length == 0 || probability == "NEGLIGIBLE"))
+                continue;
+
+            var name = category.StartsWith("HARM_CATEGORY_", StringComparison.Ordinal)
+                ? category["HARM_CATEGORY_".Length..]
+                : category;
+            flagged.Add($"{name}={probability}{(blocked ? " (bloqueó)" : "")}");
+        }
+
+        return flagged.Count == 0 ? null : string.Join(", ", flagged);
+    }
+}
 
 /// <summary>
 /// Extra Gemini API <c>contents</c> turns (e.g. model functionCall + user functionResponse) within a single voice turn.
@@ -378,7 +424,23 @@ public class GeminiChatService
                 ReadCount(usageEl, "totalTokenCount"));
         }
 
-        if (!root.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+        // A blocked request comes back with promptFeedback and no candidates.
+        if (root.TryGetProperty("promptFeedback", out var feedbackEl)
+            && feedbackEl.ValueKind == JsonValueKind.Object
+            && feedbackEl.TryGetProperty("blockReason", out var blockEl)
+            && blockEl.ValueKind == JsonValueKind.String
+            && blockEl.GetString() is { Length: > 0 } blockReason)
+        {
+            yield return new GeminiPromptBlocked(
+                blockReason,
+                feedbackEl.TryGetProperty("safetyRatings", out var promptRatings)
+                    ? GeminiSafety.Describe(promptRatings)
+                    : null);
+        }
+
+        if (!root.TryGetProperty("candidates", out var candidates)
+            || candidates.ValueKind != JsonValueKind.Array
+            || candidates.GetArrayLength() == 0)
             yield break;
 
         var candidate = candidates[0];
@@ -394,7 +456,15 @@ public class GeminiChatService
             && finishEl.ValueKind == JsonValueKind.String
             && finishEl.GetString() is { Length: > 0 } reason)
         {
-            yield return new GeminiFinish(reason);
+            var message = candidate.TryGetProperty("finishMessage", out var messageEl)
+                          && messageEl.ValueKind == JsonValueKind.String
+                          && messageEl.GetString() is { Length: > 0 } m
+                ? m
+                : null;
+            var ratings = candidate.TryGetProperty("safetyRatings", out var ratingsEl)
+                ? GeminiSafety.Describe(ratingsEl)
+                : null;
+            yield return new GeminiFinish(reason, message, ratings);
         }
     }
 
