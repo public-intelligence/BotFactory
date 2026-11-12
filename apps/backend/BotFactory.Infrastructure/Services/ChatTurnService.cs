@@ -127,6 +127,15 @@ public sealed class ChatTurnService : IChatTurnService
         // «Respaldo obligatorio»: Google refused the forced lookup and the call was repeated once
         // without forcing it (see where a call gives no answer, below).
         var unforcedRetry = false;
+        // Tool calls Gemini wrote as text instead of making them (WrittenToolCall): how many this
+        // turn, and whether an unreadable one was already repeated. A written call names one of
+        // the tools this bot can call this turn.
+        var writtenCalls = 0;
+        var writtenCallRetried = false;
+        var toolNames = _toolRegistry.BuildGeminiToolsPayload()
+            .SelectMany(g => g.FunctionDeclarations)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.Ordinal);
         // The current user question. It must remain in `contents` on EVERY
         // Gemini pass this turn — including the post-tool answer pass — or the
         // model loses the question and answers the previous topic (observed as
@@ -180,6 +189,20 @@ public sealed class ChatTurnService : IChatTurnService
 
             buffer.Append(text);
             await onDelta(text, cancellationToken);
+        }
+
+        // Model text on its way to the visitor: straight out, or through the gate of
+        // «Respaldo obligatorio», which releases it sentence by sentence.
+        async Task DeliverAsync(string text)
+        {
+            if (gate is null)
+            {
+                await EmitAsync(text);
+                return;
+            }
+
+            foreach (var ready in gate.Push(text))
+                await EmitAsync(ready);
         }
 
         // Token accounting. Gemini reports usageMetadata on every chunk of a call with
@@ -307,6 +330,10 @@ public sealed class ChatTurnService : IChatTurnService
 
                 var calls = new List<GeminiFunctionCall>();
                 var passText = new StringBuilder();
+                // The first characters of the pass wait until it is clear they are not a tool
+                // call written as text; a pass that starts like one is held whole and read at the end.
+                var heldText = new StringBuilder();
+                var head = WrittenToolCall.HeadDecision.Undecided;
                 string? finishReason = null;
                 var geminiSw = Stopwatch.StartNew();
                 int? geminiFirstDeltaMs = null;
@@ -350,14 +377,19 @@ public sealed class ChatTurnService : IChatTurnService
                                         .Replace('\r', '\n');
                                     geminiFirstDeltaMs ??= (int)geminiSw.ElapsedMilliseconds;
                                     passText.Append(safe);
-                                    if (gate is null)
+                                    if (head == WrittenToolCall.HeadDecision.Release)
                                     {
-                                        await EmitAsync(safe);
+                                        await DeliverAsync(safe);
+                                        break;
                                     }
-                                    else
+
+                                    heldText.Append(safe);
+                                    if (head == WrittenToolCall.HeadDecision.Undecided)
+                                        head = WrittenToolCall.ClassifyHead(heldText.ToString(), toolNames);
+                                    if (head == WrittenToolCall.HeadDecision.Release)
                                     {
-                                        foreach (var ready in gate.Push(safe))
-                                            await EmitAsync(ready);
+                                        await DeliverAsync(heldText.ToString());
+                                        heldText.Clear();
                                     }
 
                                     break;
@@ -434,6 +466,71 @@ public sealed class ChatTurnService : IChatTurnService
                             thoughtsTokens = callUsage.ThoughtsTokens,
                         },
                 });
+
+                // Text held because it started like a tool call written as text: read it now.
+                // Ordinary text goes out as usual. A written call is never shown: it runs as the
+                // call the model meant (TAINA, 1994 and 2396: «default_api.lugares(que='salud', …)»
+                // in a forced lookup), unless the model also made a real call or tools are not
+                // allowed in this call; one that cannot be read is repeated once.
+                if (heldText.Length > 0)
+                {
+                    var held = heldText.ToString();
+                    var written = WrittenToolCall.Parse(held, toolNames);
+                    if (written.Kind == WrittenToolCall.Kind.NotACall)
+                    {
+                        await DeliverAsync(held);
+                    }
+                    else
+                    {
+                        var toolsAllowed = toolChoice != ToolChoice.None;
+                        var runIt = written.Kind == WrittenToolCall.Kind.Calls && calls.Count == 0 && toolsAllowed;
+                        var repeatIt = written.Kind == WrittenToolCall.Kind.Unreadable
+                                       && calls.Count == 0
+                                       && toolsAllowed
+                                       && !writtenCallRetried;
+                        var outcome = runIt ? "se ejecutó como llamada"
+                            : repeatIt ? "no se pudo leer; se repite la llamada"
+                            : calls.Count > 0 ? "se descartó: el modelo también hizo la llamada"
+                            : !toolsAllowed ? "se descartó: esta llamada no permite herramientas"
+                            : "no se pudo leer; se descartó";
+
+                        writtenCalls++;
+                        passText.Clear();
+                        if (runIt)
+                            calls.AddRange(written.Calls.Select(c => new GeminiFunctionCall(c.Name, c.Args)));
+
+                        _logger.LogWarning(
+                            "Gemini wrote a tool call as text for conversation {ConversationId} ({Outcome}): {Text}",
+                            conv.Id,
+                            outcome,
+                            TruncateForSummary(held, 300));
+                        await EmitBestEffortAsync(new TelemetryEmit(
+                            "tool_call_as_text",
+                            EventSource.Backend,
+                            BotId: conv.BotId,
+                            ConversationId: conv.Id,
+                            UserId: conv.UserId,
+                            TurnId: request.TurnId,
+                            Stage: "llm",
+                            Provider: "gemini",
+                            Summary: $"Gemini escribió la llamada como texto: {TruncateForSummary(held, 160)} · {outcome}",
+                            Data: JsonSerializer.SerializeToElement(new
+                            {
+                                text = TruncateForSummary(held, 1000),
+                                read = written.Kind.ToString(),
+                                calls = written.Calls.Select(c => new { name = c.Name, args = c.Args }),
+                                ran = runIt,
+                                repeated = repeatIt,
+                                toolMode = ToolModeName(toolChoice),
+                            })));
+
+                        if (repeatIt)
+                        {
+                            writtenCallRetried = true;
+                            continue;
+                        }
+                    }
+                }
 
                 // Gemini ended the call with no text and no lookup it could act on: the visitor will
                 // get the error message, and what Google said about why is the only trace of the
@@ -813,6 +910,7 @@ public sealed class ChatTurnService : IChatTurnService
                     toolCapReached,
                     continued,
                     unforcedRetry,
+                    writtenCalls,
                     groundingBlocked = gate?.Blocked.Count ?? 0,
                     segments,
                 });
