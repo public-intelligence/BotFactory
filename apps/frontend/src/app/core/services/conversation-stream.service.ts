@@ -12,6 +12,7 @@ import { Api } from '../../api/api';
 import { getConversation, getPublicConversation } from '../../api/functions';
 import { PublicSessionService } from './public-session.service';
 import type { ConversationDetailResponse } from '../../api/models/conversation-detail-response';
+import type { ContactButton } from '../../api/models/contact-button';
 import type { MessageResponse } from '../../api/models/message-response';
 import type { TelemetryEventResponse } from '../../api/models/telemetry-event-response';
 import {
@@ -38,6 +39,10 @@ interface ConversationItemPayload {
     content: string;
     provider: string | null;
     latencyMs: number | null;
+    /** The answer's closing contact block as buttons, read by the server (ContactLine). */
+    contacts?: ContactButton[] | null;
+    /** The answer without that block. */
+    displayContent?: string | null;
   } | null;
   event: {
     id: number;
@@ -376,6 +381,8 @@ export class ConversationStreamService {
       provider: m.provider,
       latencyMs: m.latencyMs,
       createdAt: p.occurredAt,
+      contacts: m.contacts ?? null,
+      displayContent: m.displayContent ?? null,
     };
   }
 

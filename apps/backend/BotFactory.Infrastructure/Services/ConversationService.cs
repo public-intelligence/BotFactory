@@ -191,18 +191,22 @@ public class ConversationService(
         if (conversation is null)
             return null;
 
-        var messages = await db.Messages
+        var stored = await db.Messages
             .Where(m => m.ConversationId == conversation.Id && m.Role != MessageRole.Tool)
             .OrderBy(m => m.CreatedAt)
             .ThenBy(m => m.Id)
-            .Select(m => new MessageResponse(
-                m.Id,
-                m.Role.ToString(),
-                m.Content,
-                m.Provider,
-                m.LatencyMs,
-                m.CreatedAt))
+            .Select(m => new { m.Id, m.Role, m.Content, m.Provider, m.LatencyMs, m.CreatedAt })
             .ToListAsync();
+
+        // An answer's closing contact block goes to the chat as buttons (ContactLine).
+        var messages = stored
+            .Select(m =>
+            {
+                var role = m.Role.ToString();
+                var (contacts, displayContent) = ContactLine.ForMessage(role, m.Content);
+                return new MessageResponse(m.Id, role, m.Content, m.Provider, m.LatencyMs, m.CreatedAt, contacts, displayContent);
+            })
+            .ToList();
 
         // Content events (e.g. kb_retrieved) ship to every viewer; admin
         // telemetry events ship only when includeEvents + telemetry:read.

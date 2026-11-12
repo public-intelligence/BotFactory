@@ -44,16 +44,23 @@ public class ConversationStreamPublisher : IConversationStreamPublisher
         return _hub.Clients.Group(group).SendAsync("eventAdded", dto, cancellationToken);
     }
 
-    private static ConversationItemDto ToItem(Message m) => new(
-        Kind: "message",
-        OccurredAt: DateTime.SpecifyKind(m.CreatedAt, DateTimeKind.Utc),
-        Message: new MessageItemPayload(
-            m.Id,
-            m.Role.ToString(),
-            m.Content,
-            m.Provider,
-            m.LatencyMs),
-        Event: null);
+    private static ConversationItemDto ToItem(Message m)
+    {
+        var role = m.Role.ToString();
+        var (contacts, displayContent) = ContactLine.ForMessage(role, m.Content);
+        return new ConversationItemDto(
+            Kind: "message",
+            OccurredAt: DateTime.SpecifyKind(m.CreatedAt, DateTimeKind.Utc),
+            Message: new MessageItemPayload(
+                m.Id,
+                role,
+                m.Content,
+                m.Provider,
+                m.LatencyMs,
+                contacts,
+                displayContent),
+            Event: null);
+    }
 
     private static ConversationItemDto ToItem(TelemetryEvent e) => new(
         Kind: "event",

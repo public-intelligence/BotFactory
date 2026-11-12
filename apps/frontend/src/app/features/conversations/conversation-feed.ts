@@ -102,11 +102,60 @@ const ERROR_EVENTS = new Set([
                 [style.color]="brandedBubbleFg(item)"
               >
                 @if (!isUser(item)) {
+                  <!-- The answer's closing contact block comes as buttons from the server (ContactLine):
+                       the text goes without it, so the contacts are not shown twice. -->
                   <bf-assistant-message
-                    [content]="item.data.content"
+                    [content]="item.data.displayContent ?? item.data.content"
                     [dark]="dark()"
                     [branded]="branded()"
                   />
+                  @if (item.data.contacts?.length) {
+                    <div class="mt-2.5 flex flex-wrap gap-1.5" role="group" aria-label="Datos de contacto">
+                      @for (c of item.data.contacts; track c.href) {
+                        <a
+                          [href]="c.href"
+                          [attr.target]="c.kind === 'url' ? '_blank' : null"
+                          [attr.rel]="c.kind === 'url' ? 'noopener noreferrer' : null"
+                          [attr.title]="c.detail ? c.detail + ' · ' + c.href : c.href"
+                          class="inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium no-underline transition-opacity hover:opacity-80"
+                          [class.border-neutral-300]="!dark() && !branded()"
+                          [class.bg-white]="!dark() && !branded()"
+                          [class.text-blue-700]="!dark() && !branded()"
+                          [class.border-white]="dark() && !branded()"
+                          [class.border-opacity-20]="dark() && !branded()"
+                          [class.text-sky-300]="dark() && !branded()"
+                          [style.color]="branded() ? 'var(--bf-accent)' : null"
+                          [style.border-color]="branded() ? 'color-mix(in srgb, var(--bf-accent) 45%, transparent)' : null"
+                          [style.background]="branded() ? 'color-mix(in srgb, var(--bf-accent) 10%, transparent)' : null"
+                        >
+                          @switch (c.kind) {
+                            @case ('phone') {
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M2 3.5A1.5 1.5 0 0 1 3.5 2h1.148a1.5 1.5 0 0 1 1.465 1.175l.513 2.31a1.5 1.5 0 0 1-1.02 1.762l-.993.331a11.05 11.05 0 0 0 5.81 5.81l.33-.993a1.5 1.5 0 0 1 1.763-1.02l2.31.513A1.5 1.5 0 0 1 18 13.352V14.5a1.5 1.5 0 0 1-1.5 1.5H15C8.096 16 2.5 10.404 2.5 3.5Z" clip-rule="evenodd" />
+                              </svg>
+                            }
+                            @case ('email') {
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0" aria-hidden="true">
+                                <path d="M3 4a2 2 0 0 0-2 2v1.161l8.441 4.221a1.25 1.25 0 0 0 1.118 0L19 7.162V6a2 2 0 0 0-2-2H3Z" />
+                                <path d="m19 8.839-7.77 3.885a2.75 2.75 0 0 1-2.46 0L1 8.839V14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.839Z" />
+                              </svg>
+                            }
+                            @default {
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M4.25 5.5a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-4a.75.75 0 0 1 1.5 0v4A2.25 2.25 0 0 1 12.75 17h-8.5A2.25 2.25 0 0 1 2 14.75v-8.5A2.25 2.25 0 0 1 4.25 4h5a.75.75 0 0 1 0 1.5h-5Zm7.25-.75a.75.75 0 0 1 .75-.75h3.5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V6.56l-5.22 5.22a.75.75 0 1 1-1.06-1.06l5.22-5.22h-1.69a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd" />
+                              </svg>
+                            }
+                          }
+                          <span class="truncate">
+                            @if (c.detail) {
+                              <span class="opacity-70">{{ c.detail }}: </span>
+                            }
+                            {{ c.label }}
+                          </span>
+                        </a>
+                      }
+                    </div>
+                  }
                 } @else {
                 <p class="whitespace-pre-wrap break-words">
                   @for (seg of linkifySegments(item.data.content); track $index) {
