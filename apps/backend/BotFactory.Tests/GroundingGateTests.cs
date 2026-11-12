@@ -191,6 +191,150 @@ public class GroundingGateTests
         Assert.Empty(gate.Flush());
     }
 
+    // ── False positives seen on TAINA (point 5 of OGTIC's 7-Nov feedback) ──────────────────
+
+    [Fact]
+    public void BonoMadre_PesosWithCentavosInWords_IsOneAmount()
+    {
+        // Conversations 1759, 2125, 2164, 2309, 2387, 2396, 2399: the answer itself was dropped
+        // and the visitor read «No tengo esa información confirmada».
+        var gate = Gate("El Bono Madre 2026 fue un pago único de RD$1,500 en mayo, para madres dominicanas con cédula, residentes en el país y con ingresos de hasta RD$38,158.33.");
+        var sentence = "Para el Bono Madre 2026, las madres dominicanas residentes en el país podían tener ingresos de hasta treinta y ocho mil ciento cincuenta y ocho pesos con treinta y tres centavos.";
+
+        Assert.Equal(sentence, Run(gate, sentence));
+        Assert.Empty(gate.Blocked);
+    }
+
+    [Fact]
+    public void AmountWithoutItsCentavos_Passes()
+    {
+        var gate = Gate("con ingresos de hasta RD$38,158.33");
+        Assert.Equal("El tope era de treinta y ocho mil ciento cincuenta y ocho pesos.",
+            Run(gate, "El tope era de treinta y ocho mil ciento cincuenta y ocho pesos."));
+        Assert.Empty(gate.Blocked);
+    }
+
+    [Theory]
+    [InlineData("{\"combustible\":\"Gasoil regular\",\"rd_por_galon\":270.8}", "- Gasoil regular: doscientos setenta pesos con ochenta centavos el galón.")]
+    [InlineData("{\"compra\":60.59,\"venta\":60.9}", "El dólar se compra a sesenta pesos con cincuenta y nueve centavos y se vende a sesenta pesos con noventa centavos.")]
+    public void PriceFromATool_InPesosAndCentavos_Passes(string evidence, string sentence)
+    {
+        // Conversations 1590, 1615 and 1619: the centavos alone were read as an amount of their own.
+        var gate = Gate(evidence);
+        Assert.Equal(sentence, Run(gate, sentence));
+        Assert.Empty(gate.Blocked);
+    }
+
+    [Fact]
+    public void WrongCentavos_AreStillBlocked()
+    {
+        var gate = Gate("{\"rd_por_galon\":270.8}");
+        Run(gate, "El gasoil cuesta doscientos setenta pesos con noventa y cinco centavos el galón.");
+        Assert.Equal("amount", Assert.Single(gate.Blocked).Kind);
+    }
+
+    [Theory]
+    [InlineData("{\"precios\":{\"Mercado Nuevo\":39,\"Mercado Conaprope\":40}}", "El arroz súper selecto cuesta entre treinta y nueve y cuarenta pesos la libra.")]
+    [InlineData("{\"precios\":{\"Mercado Nuevo\":60,\"Mercadom\":84}}", "El pollo procesado está entre sesenta y ochenta y cuatro pesos la libra.")]
+    [InlineData("{\"precios\":{\"Mercado Nuevo\":58,\"Mercadom\":50}}", "El pollo vivo está entre cincuenta y cincuenta y ocho pesos la libra.")]
+    public void RangeInWords_IsTwoAmounts(string evidence, string sentence)
+    {
+        // Conversations 1643 and 2413: «sesenta y ochenta y cuatro» was read as one number.
+        var gate = Gate(evidence);
+        Assert.Equal(sentence, Run(gate, sentence));
+        Assert.Empty(gate.Blocked);
+    }
+
+    [Fact]
+    public void RangeWithAnInventedEnd_IsBlocked()
+    {
+        var gate = Gate("{\"precios\":{\"Mercado Nuevo\":39,\"Mercado Conaprope\":40}}");
+        Run(gate, "El arroz cuesta entre treinta y nueve y cincuenta pesos la libra.");
+        Assert.Equal("amount", Assert.Single(gate.Blocked).Kind);
+    }
+
+    [Fact]
+    public void ThousandsWrittenAsDigitsAndMil_CountAsTheWholeAmount()
+    {
+        // Conversation 2007: the person wrote «35 mil pesos» and the answer said it back.
+        var gate = Gate("Gano como 35 mil pesos al mes, califico?");
+        Assert.Equal("Con treinta y cinco mil pesos, usted cumpliría con ese requisito.",
+            Run(gate, "Con treinta y cinco mil pesos, usted cumpliría con ese requisito."));
+        Assert.Empty(gate.Blocked);
+    }
+
+    [Fact]
+    public void PhoneSaidWithATwoDigitWord_IsReadWhole()
+    {
+        // Conversation 2228: «cero cero veinticinco» was cut at «cero cero».
+        var sentence = "Las citas se piden a la línea asterisco siete cinco tres desde un celular o al ocho cero nueve, dos cero cero, cero cero veinticinco desde un teléfono fijo.";
+        var supported = Gate("{\"citas_por_telefono\":\"*753 desde un celular o 809-200-0025 desde un teléfono fijo\"}");
+        Assert.Equal(sentence, Run(supported, sentence));
+        Assert.Empty(supported.Blocked);
+
+        var invented = Gate("{\"citas_por_telefono\":\"*753 desde un celular o 809-200-0025 desde un teléfono fijo\"}");
+        Run(invented, "Llame al ocho cero nueve, dos cero cero, cero cero treinta y uno.");
+        Assert.Equal("phone", Assert.Single(invented.Blocked).Kind);
+    }
+
+    [Theory]
+    [InlineData("(https://proconsumidor.gob.do/files/precios de productos de primera necesidad.csv)", "Por favor, vea los datos de contacto: https://proconsumidor.gob.do/files/precios%20de%20productos%20de%20primera%20necesidad.csv")]
+    [InlineData("(https://proconsumidor.gob.do/files/precios%20de%20productos%20de%20primera%20necesidad.csv)", "Por favor, vea los datos de contacto: https://proconsumidor.gob.do/files/precios%20de%20productos%20de%20primera%20necesidad.csv")]
+    public void LinkWithEscapedSpaces_MatchesTheSource(string evidence, string sentence)
+    {
+        // Conversation 1643: the source wrote the spaces, the answer «%20».
+        var gate = Gate(evidence);
+        Assert.Equal(sentence, Run(gate, sentence));
+        Assert.Empty(gate.Blocked);
+    }
+
+    [Fact]
+    public void ContactDataFromTheWholeKnowledgeBase_Passes()
+    {
+        // Conversations 2219, 2303 and 2392: right links and phones that the base has, but not
+        // the fragments of that turn's lookup.
+        var gate = Gate("{\"resultado\":\"sin fragmentos\"}");
+        gate.AddContactEvidence(["https://edeeste.com.do/", "809-920-2081", "*462", "info@proconsumidor.gob.do"]);
+        var line = "Por favor, vea los datos de contacto: https://www.edeeste.com.do · 809-920-2081 · *462 · info@proconsumidor.gob.do";
+
+        Assert.Equal(line, Run(gate, line));
+        Assert.Empty(gate.Blocked);
+    }
+
+    [Fact]
+    public void ContactDataFromTheWholeBase_DoesNotBackAmounts()
+    {
+        // A phone of the base (809-200-0025) must not make «doscientos pesos» a sourced amount.
+        var gate = Gate("{\"resultado\":\"sin fragmentos\"}");
+        gate.AddContactEvidence(["809-200-0025"]);
+        Run(gate, "El trámite cuesta doscientos pesos.");
+        Assert.Equal("amount", Assert.Single(gate.Blocked).Kind);
+    }
+
+    [Theory]
+    [InlineData("Por favor, vea los datos de contacto: 809-286-1009 · ogetic.gob.do", "ogetic.gob.do")]
+    [InlineData("Mercado Conaprope: https://www.google.com/maps/search/?api=1&query=Mercado+Conaprope+Santo+Domingo", "https://www.google.com/maps/search/?api=1&query=Mercado+Conaprope+Santo+Domingo")]
+    public void LinksTheModelMadeUp_AreStillBlocked(string sentence, string expected)
+    {
+        // Conversations 1973 (a misspelt domain) and 2412 (a map search the model built).
+        var gate = Gate("Portal: https://ogtic.gob.do · Teléfono: 809-286-1009 · https://www.google.com/maps?q=18.4791,-69.9113");
+        gate.AddContactEvidence(["https://ogtic.gob.do", "809-286-1009"]);
+        Run(gate, sentence);
+        var blocked = Assert.Single(gate.Blocked);
+        Assert.Equal("url", blocked.Kind);
+        Assert.Equal(expected, blocked.Value);
+    }
+
+    [Theory]
+    [InlineData("treinta y nueve y cuarenta", new[] { "treinta y nueve", "cuarenta" })]
+    [InlineData("sesenta y ochenta y cuatro", new[] { "sesenta", "ochenta y cuatro" })]
+    [InlineData("treinta y ocho mil ciento cincuenta y ocho", new[] { "treinta y ocho mil ciento cincuenta y ocho" })]
+    [InlineData("dos y tres", new[] { "dos", "tres" })]
+    public void SpanishNumbers_SplitARunIntoItsNumbers(string words, string[] expected)
+    {
+        Assert.Equal(expected, SpanishNumbers.Split(words));
+    }
+
     [Theory]
     [InlineData("veintidós", 22)]
     [InlineData("treinta y cinco", 35)]

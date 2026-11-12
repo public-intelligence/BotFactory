@@ -23,6 +23,7 @@ public sealed class ChatTurnService : IChatTurnService
     private readonly IToolsetContext _toolsetContext;
     private readonly GeminiChatService _geminiChat;
     private readonly IToolRegistry _toolRegistry;
+    private readonly KbContactEvidence _kbContacts;
     private readonly IOptions<GeminiChatOptions> _chatOptions;
     private readonly ITelemetryService _telemetry;
     private readonly IConversationStreamPublisher _streamPublisher;
@@ -38,7 +39,8 @@ public sealed class ChatTurnService : IChatTurnService
         IOptions<GeminiChatOptions> chatOptions,
         ITelemetryService telemetry,
         IConversationStreamPublisher streamPublisher,
-        ILogger<ChatTurnService> logger)
+        ILogger<ChatTurnService> logger,
+        KbContactEvidence kbContacts)
     {
         _db = db;
         _tenantSetter = tenantSetter;
@@ -50,6 +52,7 @@ public sealed class ChatTurnService : IChatTurnService
         _telemetry = telemetry;
         _streamPublisher = streamPublisher;
         _logger = logger;
+        _kbContacts = kbContacts;
     }
 
     public async Task<ChatTurnResult> ExecuteAsync(
@@ -162,6 +165,18 @@ public sealed class ChatTurnService : IChatTurnService
                 gate.AddEvidence(m.Content);
             foreach (var e in historyEvidence)
                 gate.AddEvidence(e);
+
+            // The phones, links and e-mails of the whole knowledge base also count, not only those
+            // of the fragments this turn's lookup brings. Best-effort: without them the gate is
+            // only stricter.
+            try
+            {
+                gate.AddContactEvidence(await _kbContacts.GetAsync(bot.Id, cancellationToken));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not load the knowledge base's contact data for bot {BotId}", bot.Id);
+            }
         }
 
         async Task EmitAsync(string text)

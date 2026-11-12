@@ -45,6 +45,9 @@ public sealed class GroundingGate
 
     public void AddEvidence(string? text) => _evidence.Add(text);
 
+    /// <summary>Contact data from the bot's whole knowledge base (see <see cref="GroundingEvidence.AddContacts"/>).</summary>
+    public void AddContactEvidence(IEnumerable<string> items) => _evidence.AddContacts(items);
+
     /// <summary>Feeds streamed text; returns what is safe to deliver now.</summary>
     public List<string> Push(string delta)
     {
@@ -185,11 +188,31 @@ public sealed class GroundingEvidence
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     // A phone said digit by digit, as voice-friendly answers write it:
-    // "ocho, cero, nueve; cinco, dos, tres; cero, cuatro, cero, cuatro".
+    // "ocho, cero, nueve; cinco, dos, tres; cero, cuatro, cero, cuatro". Some answers say a
+    // pair of digits as one number: «cero cero veinticinco» (TAINA, conversation 2228).
     private const string DigitWord = "cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve";
 
+    private const string PairWord =
+        "diez|once|doce|trece|catorce|quince|dieciséis|dieciseis|diecisiete|dieciocho|diecinueve|"
+        + "veintiuno|veintidós|veintidos|veintitrés|veintitres|veinticuatro|veinticinco|veintiséis|veintiseis|"
+        + "veintisiete|veintiocho|veintinueve|veinte|"
+        + "(?:treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)(?:\\s+y\\s+(?:" + DigitWord + "))?";
+
+    // At least five words; whether they make a phone (seven digits or more) is decided after reading them.
     private static readonly Regex SpokenDigitsRe = new(
-        @"\b(?:" + DigitWord + @")(?:[\s,;]+(?:" + DigitWord + @")){6,}\b",
+        @"\b(?:" + PairWord + "|" + DigitWord + @")(?:[\s,;]+(?:" + PairWord + "|" + DigitWord + @")){4,}\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // «treinta y ocho mil ciento cincuenta y ocho pesos con treinta y tres centavos» is one amount,
+    // 38158.33 (Bono Madre 2026, RD$38,158.33): read apart, the pesos alone were in no source.
+    private static readonly Regex MoneyWordsWithCentsRe = new(
+        @"\b((?:" + SpanishNumbers.WordPattern + @")(?:\s+(?:y\s+)?(?:" + SpanishNumbers.WordPattern + @"))*)\s+pesos?\s+con\s+"
+        + @"((?:" + SpanishNumbers.WordPattern + @")(?:\s+(?:y\s+)?(?:" + SpanishNumbers.WordPattern + @"))*)\s+centavos?\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // «35 mil», «1.5 millones»: digits and a scale word, as people write amounts.
+    private static readonly Regex DigitsThenScaleRe = new(
+        @"(?<![\d.,])(\d{1,3}(?:[.,]\d{1,3})?)\s+(mil|millones|millón|millon)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex StarCodeRe = new(
@@ -232,7 +255,7 @@ public sealed class GroundingEvidence
         foreach (Match m in EmailRe.Matches(text))
             _emails.Add(m.Value);
         foreach (Match m in UrlRe.Matches(text))
-            _urls.Add(NormalizeUrl(m.Value));
+            AddUrl(m.Value);
         foreach (Match m in PhoneRe.Matches(text))
         {
             var digits = Digits(m.Value);
@@ -244,7 +267,12 @@ public sealed class GroundingEvidence
         {
             _digitRuns.Add(Digits(m.Value));
             foreach (var v in NumberCandidates(m.Value))
+            {
                 _values.Add(v);
+                // «38,158.33» also counts as 38158: an answer may leave out the centavos.
+                _values.Add(decimal.Truncate(v));
+            }
+
             // "0.50" also yields 0 and 50: "cincuenta centavos" must find it.
             foreach (var part in m.Value.Split('.', ','))
             {
@@ -253,11 +281,83 @@ public sealed class GroundingEvidence
             }
         }
 
+        foreach (Match m in DigitsThenScaleRe.Matches(text))
+        {
+            var scale = m.Groups[2].Value.Equals("mil", StringComparison.OrdinalIgnoreCase) ? 1_000m : 1_000_000m;
+            foreach (var v in NumberCandidates(m.Groups[1].Value))
+                _values.Add(Round(v * scale));
+        }
+
         foreach (Match m in WordRunRe.Matches(text))
         {
             if (SpanishNumbers.TryParse(m.Value, out var v))
                 _values.Add(v);
+            foreach (var part in SpanishNumbers.Split(m.Value))
+            {
+                if (SpanishNumbers.TryParse(part, out var p))
+                    _values.Add(p);
+            }
         }
+    }
+
+    /// <summary>
+    /// Contact data from the bot's whole knowledge base (phones, service codes, links,
+    /// e-mails; see <see cref="ContactItems"/>), as support for the same kinds of data only:
+    /// an answer may give the right phone of an institution even when this turn's lookup did
+    /// not bring it. Amounts and other figures still have to come from what was consulted.
+    /// </summary>
+    public void AddContacts(IEnumerable<string> items)
+    {
+        foreach (var item in items)
+        {
+            if (string.IsNullOrWhiteSpace(item))
+                continue;
+
+            if (EmailRe.IsMatch(item))
+            {
+                _emails.Add(item.Trim());
+                continue;
+            }
+
+            var digits = Digits(item);
+            var looksLikeLink = item.Contains('.') && item.Any(char.IsLetter);
+            if (looksLikeLink)
+                AddUrl(item);
+            else if (digits.Length >= 3)
+                _digitRuns.Add(digits);
+        }
+    }
+
+    /// <summary>The phones, service codes, links and e-mails of a text, one item each.</summary>
+    public static IEnumerable<string> ContactItems(string text)
+    {
+        foreach (Match m in EmailRe.Matches(text))
+            yield return m.Value;
+        foreach (Match m in UrlRe.Matches(text))
+        {
+            if (!EmailRe.IsMatch(m.Value))
+                yield return TrimUrl(m.Value);
+        }
+
+        foreach (Match m in StarCodeRe.Matches(text))
+            yield return m.Value;
+        foreach (Match m in PhoneRe.Matches(text))
+        {
+            if (Digits(m.Value).Length is >= 7 and <= 15)
+                yield return m.Value.Trim();
+        }
+    }
+
+    private void AddUrl(string raw)
+    {
+        var url = NormalizeUrl(raw);
+        if (url.Length == 0)
+            return;
+        _urls.Add(url);
+        // The decoded form is searchable too: a source may write «precios de productos.csv»
+        // and the answer «precios%20de%20productos.csv», or the other way around.
+        _text.Append('\n').Append(url);
+        _textSnapshot = null;
     }
 
     private string Text => _textSnapshot ??= _text.ToString();
@@ -312,8 +412,11 @@ public sealed class GroundingEvidence
         {
             if (Covered(m))
                 continue;
-            Cover(m);
             var digits = SpokenDigits(m.Value);
+            // "dos o tres días", "cuatro, seis, dos" (a service code) are not phones.
+            if (digits.Length < 7)
+                continue;
+            Cover(m);
             if (!PhoneSupported(digits))
                 issues.Add(("phone", m.Value.Trim()));
         }
@@ -329,16 +432,42 @@ public sealed class GroundingEvidence
                 issues.Add(("amount", m.Value.Trim()));
         }
 
+        // Pesos and centavos said together are one amount. When the sources have it, the whole
+        // phrase is covered; when not, each part is still checked below as before.
+        foreach (Match m in MoneyWordsWithCentsRe.Matches(text))
+        {
+            if (Covered(m))
+                continue;
+            var pesosParts = SpanishNumbers.Split(m.Groups[1].Value);
+            var centsParts = SpanishNumbers.Split(m.Groups[2].Value);
+            if (pesosParts.Count == 1
+                && centsParts.Count == 1
+                && SpanishNumbers.TryParse(pesosParts[0], out var pesos)
+                && SpanishNumbers.TryParse(centsParts[0], out var centavos)
+                && centavos < 100
+                && ValueSupported([pesos + centavos / 100m], cents: false))
+            {
+                Cover(m);
+            }
+        }
+
         foreach (Match m in MoneyWordsRe.Matches(text))
         {
             if (Covered(m))
                 continue;
             Cover(m);
-            if (!SpanishNumbers.TryParse(m.Groups[1].Value, out var value))
-                continue;
             var cents = m.Value.Contains("centavo", StringComparison.OrdinalIgnoreCase);
-            if (!ValueSupported([value], cents))
-                issues.Add(("amount", m.Value.Trim()));
+            // A range is two amounts: «entre treinta y nueve y cuarenta pesos» is 39 and 40.
+            foreach (var part in SpanishNumbers.Split(m.Groups[1].Value))
+            {
+                if (!SpanishNumbers.TryParse(part, out var value))
+                    continue;
+                if (!ValueSupported([value], cents))
+                {
+                    issues.Add(("amount", m.Value.Trim()));
+                    break;
+                }
+            }
         }
 
         foreach (Match m in NumberRe.Matches(text))
@@ -407,19 +536,47 @@ public sealed class GroundingEvidence
         return Text.Contains(url, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The digits a phone said in words stands for: one per digit word, two per number from
+    /// ten to ninety-nine («veinticinco» → 25, «treinta y uno» → 31).
+    /// </summary>
     private static string SpokenDigits(string words)
     {
         var sb = new StringBuilder();
-        foreach (var w in Regex.Split(words.ToLowerInvariant(), @"[\s,;]+"))
+        var tokens = Regex.Split(words.ToLowerInvariant(), @"[\s,;]+").Where(t => t.Length > 0).ToArray();
+        for (var i = 0; i < tokens.Length; i++)
         {
-            var d = w switch
+            var w = tokens[i];
+            if (w == "y")
+                continue;
+
+            var digit = w switch
             {
-                "cero" => '0', "uno" => '1', "dos" => '2', "tres" => '3', "cuatro" => '4',
-                "cinco" => '5', "seis" => '6', "siete" => '7', "ocho" => '8', "nueve" => '9',
-                _ => '\0',
+                "cero" => 0, "uno" => 1, "dos" => 2, "tres" => 3, "cuatro" => 4,
+                "cinco" => 5, "seis" => 6, "siete" => 7, "ocho" => 8, "nueve" => 9,
+                _ => -1,
             };
-            if (d != '\0')
-                sb.Append(d);
+            if (digit >= 0)
+            {
+                sb.Append((char)('0' + digit));
+                continue;
+            }
+
+            if (!SpanishNumbers.TryParse(w, out var pair) || pair is < 10 or > 99)
+                continue;
+
+            // «treinta y uno»: the tens word, «y», then the unit.
+            if (pair % 10 == 0
+                && i + 2 < tokens.Length
+                && tokens[i + 1] == "y"
+                && SpanishNumbers.TryParse(tokens[i + 2], out var unit)
+                && unit is >= 1 and <= 9)
+            {
+                pair += unit;
+                i += 2;
+            }
+
+            sb.Append(((int)pair).ToString(CultureInfo.InvariantCulture));
         }
 
         return sb.ToString();
@@ -433,6 +590,19 @@ public sealed class GroundingEvidence
         if (s.StartsWith("https://", StringComparison.Ordinal)) s = s[8..];
         else if (s.StartsWith("http://", StringComparison.Ordinal)) s = s[7..];
         if (s.StartsWith("www.", StringComparison.Ordinal)) s = s[4..];
+        // «%20» and a space are the same link.
+        if (s.Contains('%'))
+        {
+            try
+            {
+                s = Uri.UnescapeDataString(s);
+            }
+            catch (UriFormatException)
+            {
+                // Not a valid escape: compare it as written.
+            }
+        }
+
         return s.TrimEnd('/');
     }
 
@@ -519,6 +689,55 @@ public static class SpanishNumbers
             .Concat(["mil", "millón", "millon", "millones"])
             .OrderByDescending(k => k.Length)
             .Select(Regex.Escape));
+
+    private static readonly HashSet<string> Tens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "veinte", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta", "ochenta", "noventa",
+    };
+
+    private static readonly HashSet<string> Ones = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "un", "uno", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
+    };
+
+    /// <summary>
+    /// A run of number words split into the numbers it holds. In Spanish «y» only joins tens
+    /// and units («treinta y nueve»); anywhere else it joins two numbers: «entre treinta y nueve
+    /// y cuarenta pesos» is 39 and 40, «entre sesenta y ochenta y cuatro» is 60 and 84.
+    /// </summary>
+    public static List<string> Split(string words)
+    {
+        var tokens = words.Split((char[])[' ', '\t', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        var numbers = new List<string>();
+        var current = new List<string>();
+        for (var i = 0; i < tokens.Length; i++)
+        {
+            var w = tokens[i];
+            if (!w.Equals("y", StringComparison.OrdinalIgnoreCase))
+            {
+                current.Add(w);
+                continue;
+            }
+
+            var joinsTensAndUnit = current.Count > 0
+                                   && Tens.Contains(current[^1])
+                                   && i + 1 < tokens.Length
+                                   && Ones.Contains(tokens[i + 1]);
+            if (joinsTensAndUnit)
+            {
+                current.Add(w);
+            }
+            else if (current.Count > 0)
+            {
+                numbers.Add(string.Join(' ', current));
+                current.Clear();
+            }
+        }
+
+        if (current.Count > 0)
+            numbers.Add(string.Join(' ', current));
+        return numbers;
+    }
 
     public static bool TryParse(string words, out decimal value)
     {

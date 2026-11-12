@@ -284,6 +284,7 @@ builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.AddScoped<ITelemetryService, TelemetryService>();
 builder.Services.AddScoped<IConversationStreamPublisher, ConversationStreamPublisher>();
+builder.Services.AddScoped<KbContactEvidence>();
 builder.Services.AddScoped<IChatTurnService, ChatTurnService>();
 builder.Services.AddSingleton<IChatTurnRegistry, ChatTurnRegistry>();
 builder.Services.AddScoped<IConversationGreetingService, ConversationGreetingService>();
