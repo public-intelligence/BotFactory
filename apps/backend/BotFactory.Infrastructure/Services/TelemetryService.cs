@@ -31,6 +31,8 @@ public class TelemetryService : ITelemetryService
         "tool_call_unknown",
         // Gemini ended a call with no text and no lookup; carries Google's reason.
         "llm_no_answer",
+        // Gemini wrote a tool call as text instead of making it; says what was done with it.
+        "tool_call_as_text",
         // «Respaldo obligatorio»: a datum kept out of the answer; a turn that consulted nothing.
         "grounding_blocked",
         "turn_without_tool",

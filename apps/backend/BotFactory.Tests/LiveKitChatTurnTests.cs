@@ -1176,6 +1176,75 @@ public class LiveKitChatTurnTests
     }
 
     [Fact]
+    public async Task Grounded_ToolCallWrittenAsText_RunsAsTheCall_AndIsNeverShown()
+    {
+        // TAINA, conversation 1994: the forced lookup came back as the text of the call,
+        // closing fence included, and the visitor read it as the answer.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(TextStream("default_api.kb_search(query=\"hospital publico Santiago\")\n```"));
+        handler.Enqueue(TextStream("Hay hospitales públicos en Santiago."));
+
+        var (app, convId) = await GroundedAppAsync(handler);
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Bonjou, kote m ka jwenn yon lopital piblik nan Santiago?");
+
+        Assert.Equal(2, handler.RequestBodies.Count);
+        // The second call carries the lookup as if the model had made it, and its result.
+        var second = Unescaped(handler.RequestBodies[1]);
+        Assert.Contains("\"functionCall\":{\"name\":\"kb_search\"", second, StringComparison.Ordinal);
+        Assert.Contains("hospital publico Santiago", second, StringComparison.Ordinal);
+        Assert.Contains("\"functionResponse\"", second, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("default_api", sse, StringComparison.Ordinal);
+        var messages = await MessagesOfAsync(app, convId);
+        Assert.Equal("Hay hospitales públicos en Santiago.", messages[^1].Content);
+        Assert.DoesNotContain(messages, m => m.Content.Contains("default_api", StringComparison.Ordinal));
+        Assert.Contains(messages, m => m.Role == MessageRole.Tool && m.Content.Contains("kb_search", StringComparison.Ordinal));
+
+        var asText = Assert.Single(await TelemetryOfAsync(app, convId, "tool_call_as_text"));
+        Assert.Contains("se ejecutó como llamada", asText.Summary!, StringComparison.Ordinal);
+        Assert.Empty(await TelemetryOfAsync(app, convId, "turn_without_tool"));
+        using var turn = JsonDocument.Parse(Assert.Single(await TelemetryOfAsync(app, convId, "backend_completed")).Data!);
+        Assert.Equal(1, turn.RootElement.GetProperty("writtenCalls").GetInt32());
+        Assert.Equal(1, turn.RootElement.GetProperty("toolCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task ChatTurn_WrittenCallThatCannotBeRead_IsRepeatedOnce_AndNeverShown()
+    {
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue(TextStream("default_api.kb_search('hospital')"));
+        handler.Enqueue(TextStream("Respuesta normal."));
+
+        var (app, convId) = await AppWithConversationAsync(handler);
+        using var _ = app;
+        var sse = await PostTurnAsync(app, convId, "Hola");
+
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.DoesNotContain("default_api", sse, StringComparison.Ordinal);
+        Assert.Equal("Respuesta normal.", (await MessagesOfAsync(app, convId))[^1].Content);
+        var asText = Assert.Single(await TelemetryOfAsync(app, convId, "tool_call_as_text"));
+        Assert.Contains("se repite la llamada", asText.Summary!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChatTurn_AnswerThatOnlyStartsLikeACall_IsDeliveredUnchanged()
+    {
+        // «de …» could begin «default_api.», so it waits a few characters, then goes out whole.
+        var handler = new ScriptedGeminiHandler();
+        handler.Enqueue("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"de\"}]}}]}\n\n"
+                        + "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" acuerdo con su fuente, el trámite es gratis.\"}]},\"finishReason\":\"STOP\"}]}\n\n");
+
+        var (app, convId) = await AppWithConversationAsync(handler);
+        using var _ = app;
+        await PostTurnAsync(app, convId, "¿Cuánto cuesta?");
+
+        Assert.Single(handler.RequestBodies);
+        Assert.Equal("de acuerdo con su fuente, el trámite es gratis.", (await MessagesOfAsync(app, convId))[^1].Content);
+        Assert.Empty(await TelemetryOfAsync(app, convId, "tool_call_as_text"));
+    }
+
+    [Fact]
     public async Task Grounded_ForcedLookupEmptyForAnotherReason_IsNotRepeated()
     {
         // Only a refusal by Google is repeated: an empty answer that ended normally is not.
