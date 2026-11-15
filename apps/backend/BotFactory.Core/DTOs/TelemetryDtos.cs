@@ -1,3 +1,4 @@
+using BotFactory.Core.Services;
 namespace BotFactory.Core.DTOs;
 
 public record TelemetryEventResponse(
@@ -33,7 +34,10 @@ public record MessageItemPayload(
     string Role,
     string Content,
     string? Provider,
-    int? LatencyMs);
+    int? LatencyMs,
+    // As in MessageResponse: the contact block of an answer as buttons, and the text without it.
+    IReadOnlyList<ContactButton>? Contacts = null,
+    string? DisplayContent = null);
 
 public record EventItemPayload(
     int Id,

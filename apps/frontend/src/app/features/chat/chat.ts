@@ -97,7 +97,7 @@ const RECONNECT_STALL_MS = 30_000;
               <img
                 [src]="logoUrl()!"
                 [alt]="bot()?.botName ?? 'Logo'"
-                class="h-8 w-8 rounded-lg object-contain"
+                class="h-14 w-14 rounded-lg object-contain sm:h-16 sm:w-16"
               />
             }
             <h1 class="bf-chat-header-title text-lg font-semibold tracking-tight">

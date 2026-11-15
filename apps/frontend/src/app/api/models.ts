@@ -22,6 +22,7 @@ export type { CreateKbDocumentsFromUrlsResponse } from './models/create-kb-docum
 export type { CreateToolConnectionRequest } from './models/create-tool-connection-request';
 export type { CreateToolDefinitionRequest } from './models/create-tool-definition-request';
 export type { ElevenLabsVoicesResponse } from './models/eleven-labs-voices-response';
+export type { ContactButton } from './models/contact-button';
 export type { IFormFile } from './models/i-form-file';
 export type { JsonElement } from './models/json-element';
 export type { KbDocumentContentResponse } from './models/kb-document-content-response';

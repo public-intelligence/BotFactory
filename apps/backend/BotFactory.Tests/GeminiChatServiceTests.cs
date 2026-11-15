@@ -614,6 +614,58 @@ public class GeminiChatServiceTests
     }
 
     [Fact]
+    public void ParseStreamChunkEvents_BlockedRequest_YieldsTheBlockReasonAndTheFlaggedCategories()
+    {
+        // A request Google refuses comes back with promptFeedback and no candidates.
+        var json = """
+            {"promptFeedback":{"blockReason":"PROHIBITED_CONTENT","safetyRatings":[
+              {"category":"HARM_CATEGORY_HARASSMENT","probability":"NEGLIGIBLE"},
+              {"category":"HARM_CATEGORY_DANGEROUS_CONTENT","probability":"MEDIUM","blocked":true}]},
+             "usageMetadata":{"promptTokenCount":28959,"totalTokenCount":28959}}
+            """;
+        using var doc = JsonDocument.Parse(json);
+        var list = GeminiChatService.ParseStreamChunkEvents(doc.RootElement).ToList();
+
+        Assert.Equal(2, list.Count);
+        Assert.Equal(0, Assert.IsType<GeminiUsage>(list[0]).OutputTokens);
+        var blocked = Assert.IsType<GeminiPromptBlocked>(list[1]);
+        Assert.Equal("PROHIBITED_CONTENT", blocked.Reason);
+        Assert.Equal("DANGEROUS_CONTENT=MEDIUM (bloqueó)", blocked.SafetyRatings);
+    }
+
+    [Fact]
+    public void ParseStreamChunkEvents_AnswerWithheldForSafety_CarriesGooglesMessageAndCategories()
+    {
+        var json = """
+            {"candidates":[{"finishReason":"SAFETY","finishMessage":"Response was blocked.","safetyRatings":[
+              {"category":"HARM_CATEGORY_HARASSMENT","probability":"LOW"},
+              {"category":"HARM_CATEGORY_HATE_SPEECH","probability":"NEGLIGIBLE"},
+              {"category":"HARM_CATEGORY_DANGEROUS_CONTENT","probability":"HIGH","blocked":true}]}]}
+            """;
+        using var doc = JsonDocument.Parse(json);
+        var finish = Assert.IsType<GeminiFinish>(Assert.Single(GeminiChatService.ParseStreamChunkEvents(doc.RootElement)));
+
+        Assert.Equal("SAFETY", finish.Reason);
+        Assert.Equal("Response was blocked.", finish.Message);
+        Assert.Equal("HARASSMENT=LOW, DANGEROUS_CONTENT=HIGH (bloqueó)", finish.SafetyRatings);
+    }
+
+    [Fact]
+    public void ParseStreamChunkEvents_OrdinaryEnd_HasNoMessageNorCategories()
+    {
+        var json = """
+            {"candidates":[{"content":{"parts":[{"text":"Hola."}]},"finishReason":"STOP","safetyRatings":[
+              {"category":"HARM_CATEGORY_HARASSMENT","probability":"NEGLIGIBLE"}]}]}
+            """;
+        using var doc = JsonDocument.Parse(json);
+        var finish = GeminiChatService.ParseStreamChunkEvents(doc.RootElement).OfType<GeminiFinish>().Single();
+
+        Assert.Null(finish.Message);
+        Assert.Null(finish.SafetyRatings);
+        Assert.Empty(GeminiChatService.ParseStreamChunkEvents(doc.RootElement).OfType<GeminiPromptBlocked>());
+    }
+
+    [Fact]
     public void ParseStreamChunkEvents_SeveralFunctionCallsInOneAnswer_AreAllYieldedInOrder()
     {
         // Gemini answers a multi-question message with several calls at once.

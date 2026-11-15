@@ -1,3 +1,4 @@
+using BotFactory.Core.Services;
 namespace BotFactory.Core.DTOs;
 
 public record CloseConversationRequest(string Reason);
@@ -82,4 +83,8 @@ public record MessageResponse(
     string Content,
     string? Provider,
     int? LatencyMs,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    // An answer that closes with a contact block: its contacts as buttons, and the text without
+    // that block (ContactLine). Null for any other message.
+    IReadOnlyList<ContactButton>? Contacts = null,
+    string? DisplayContent = null);

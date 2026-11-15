@@ -6,6 +6,10 @@ import type { SidebarMenuItem, AppBranding, UserProfile, ProfileMenuItem } from 
 import { AuthService } from './core/services/auth.service';
 import { BrandingService } from './core/services/branding.service';
 
+const APP_NAME = 'BotFactory';
+const APP_NAME_SHORT = 'BF';
+const COLLAPSED_LOGO_URL = 'logo-ogtic-vertical.webp';
+
 @Component({
   selector: 'bf-layout-shell',
   imports: [RouterOutlet, AdminLayoutComponent],
@@ -19,30 +23,56 @@ import { BrandingService } from './core/services/branding.service';
       <router-outlet />
     </app-admin-layout>
   `,
+  host: { '[class.bf-collapsed]': 'layout.isSidebarCollapsed()' },
   styles: `
-    /* Logo-only sidebar brand: ui-core always renders appName beside the logo
-       and that column steals width from wide org logos. */
+    /* Expanded sidebar: the organization's logo with the application name beside it.
+       The logo never shrinks and is capped so a wide one does not push the name out. */
+    :host ::ng-deep app-sidebar img {
+      flex-shrink: 0;
+      max-width: 6rem;
+    }
     :host ::ng-deep app-sidebar img + div {
-      display: none !important;
+      min-width: 0;
     }
 
-    /* Center the logo in the sidebar header once the text column is gone. */
-    :host ::ng-deep app-sidebar .h-24 > div {
-      justify-content: center;
+    /* Collapsed sidebar: the vertical logo with "BF" underneath. ui-core hides the
+       text column (width 0, opacity 0) when collapsed, so it is shown again here. */
+    :host(.bf-collapsed) ::ng-deep app-sidebar .h-24 > div {
+      flex-direction: column;
+      gap: 0.125rem;
+    }
+    :host(.bf-collapsed) ::ng-deep app-sidebar img {
+      height: 3.5rem !important;
+      width: auto !important;
+      max-width: 4rem;
+    }
+    :host(.bf-collapsed) ::ng-deep app-sidebar img + div {
+      width: auto !important;
+      margin: 0 !important;
+      opacity: 1 !important;
+    }
+    :host(.bf-collapsed) ::ng-deep app-sidebar img + div span {
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
     }
   `,
 })
 export class LayoutShell implements OnInit {
-  private readonly layout = inject(LayoutService);
+  protected readonly layout = inject(LayoutService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly authService = inject(AuthService);
   private readonly brandingService = inject(BrandingService);
 
-  readonly branding = computed<AppBranding>(() => ({
-    appName: '',
-    moduleName: '',
-    logoUrl: this.brandingService.logoUrl(),
-  }));
+  // Expanded: the organization's logo and "BotFactory". Collapsed (80 px wide): the
+  // vertical OGTIC logo, which fits that width, and "BF" underneath.
+  readonly branding = computed<AppBranding>(() => {
+    const collapsed = this.layout.isSidebarCollapsed();
+    return {
+      appName: collapsed ? APP_NAME_SHORT : APP_NAME,
+      moduleName: '',
+      logoUrl: collapsed ? COLLAPSED_LOGO_URL : this.brandingService.logoUrl(),
+    };
+  });
 
   constructor() {
     // ui-core AdminLayout only pushes [branding] into LayoutService once in
