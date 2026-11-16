@@ -1,0 +1,25 @@
+Bot Factory
+Copyright 2026 Jean Antonio Garcia Periche, Melissa Michelle Muñoz Suro and
+Rainier Christopher Domingo Mallol Cotes
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Acknowledgments
+
+Bot Factory was designed and built with the participation of:
+
+  Rainier Mallol            Architect and Engineer
+  José Ant. Cid Troncoso    Lead Engineer
+  Willy Ovalle              Engineer
+  Winner Crespo             Engineer
+
+These acknowledgments only recognize participation in the design and
+development of this software. They do not grant any copyright, ownership,
+license or other legal right in the software or its name. All rights belong
+exclusively to the copyright holders named above.
+
+Third-party software
+
+This product depends on third-party software distributed under its own
+licenses, as declared in its dependency manifests. See the "Third-party
+software" section of README.md.
