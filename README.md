@@ -154,7 +154,7 @@ Bot Factory depends on third-party packages that keep their own licenses. They a
 
 ## License
 
-Copyright 2026 Jean Antonio Garcia Periche, Melissa Michelle Muñoz Suro and Rainier Christopher Domingo Mallol Cotes.
+Copyright 2026 Rainier Christopher Domingo Mallol Cotes, Jean Antonio Garcia Periche and Melissa Michelle Muñoz Suro.
 
 Licensed under the [Apache License, Version 2.0](LICENSE). See [`NOTICE`](NOTICE).
 
