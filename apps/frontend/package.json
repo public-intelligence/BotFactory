@@ -11,6 +11,7 @@
     "api:generate": "ng-openapi-gen"
   },
   "private": true,
+  "license": "Apache-2.0",
   "packageManager": "npm@11.6.2",
   "dependencies": {
     "@angular/common": "^21.2.0",
