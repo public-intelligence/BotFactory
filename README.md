@@ -135,7 +135,7 @@ make test-agent         # pytest
 
 The Docker Compose stack, its nginx configuration and the step-by-step guide are in [`deploy/`](deploy/DEPLOYMENT.md). For production:
 
-- set `AUTH_USE_FAKE=false`;
+- set `AUTH_USE_FAKE=false` and `AUTH_ALLOW_INSECURE_FAKE=false` (Fake-ID signs anyone in without a password);
 - set `AGENT_CALLBACK_SECRET`, `PUBLIC_ACCESS_SIGNING_KEY` and `ENCRYPTION_MASTER_KEY`;
 - publish only the reverse proxy ports.
 

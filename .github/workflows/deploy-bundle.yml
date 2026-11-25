@@ -1,0 +1,22 @@
+name: Deploy bundle
+
+# The zips and the flat copies under apps/frontend/public/deploy/ are generated from deploy/.
+# This check fails when they drift from the source, or when anything that looks like a secret
+# (API key, private key, literal support key, literal bearer token) is about to be published.
+on:
+  push:
+    branches: [master, development]
+    paths: ["deploy/**", "apps/frontend/public/deploy/**", "scripts/build-deploy-zips.py"]
+  pull_request:
+    paths: ["deploy/**", "apps/frontend/public/deploy/**", "scripts/build-deploy-zips.py"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the deployment bundle
+        run: python3 scripts/build-deploy-zips.py --check

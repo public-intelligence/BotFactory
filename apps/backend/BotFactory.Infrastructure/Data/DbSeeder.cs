@@ -34,8 +34,8 @@ public static class DbSeeder
 
         // Seed placeholder API keys for the super admin org. Real keys are set
         // via the Settings UI — never commit live provider keys here.
-        const string elevenLabsKey = "sk-dev-placeholder-elevenlabs-key";
-        const string geminiKey = "AIzaSy-dev-placeholder-gemini-key";
+        const string elevenLabsKey = "placeholder-elevenlabs-key";
+        const string geminiKey = "placeholder-gemini-key";
 
         var encElevenLabs = encryption.Encrypt(elevenLabsKey);
         var encGemini = encryption.Encrypt(geminiKey);

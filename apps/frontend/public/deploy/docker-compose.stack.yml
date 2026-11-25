@@ -49,9 +49,11 @@ services:
       ConnectionStrings__BotFactoryDb: "Server=${SQL_HOST},${SQL_PORT:-1433};Database=${SQL_DB:-BotFactory};User Id=${SQL_USER};Password=${SQL_PASSWORD};TrustServerCertificate=${SQL_TRUST_CERT:-true};Encrypt=${SQL_ENCRYPT:-true};Connection Timeout=30"
       AllowedOrigins: "${ALLOWED_ORIGINS}"
       Encryption__MasterKey: "${ENCRYPTION_MASTER_KEY}"
-      # --- Auth: Fake provider (test). Set AUTH_USE_FAKE=false and fill
-      #     GOBID_* for production. ---
-      Auth__UseFakeProvider: "${AUTH_USE_FAKE:-true}"
+      # --- Auth: GOB-ID by default. Fake-ID (test login, no password) is off unless
+      #     AUTH_USE_FAKE=true, and outside Development the API refuses to start with it
+      #     unless AUTH_ALLOW_INSECURE_FAKE=true too (isolated test installs only). ---
+      Auth__UseFakeProvider: "${AUTH_USE_FAKE:-false}"
+      Auth__AllowInsecureFakeProvider: "${AUTH_ALLOW_INSECURE_FAKE:-false}"
       Auth__FakeId__Issuer: "bot-factory-dev"
       Auth__FakeId__Audience: "bot-factory"
       Auth__FakeId__SigningKey: "${FAKE_SIGNING_KEY}"

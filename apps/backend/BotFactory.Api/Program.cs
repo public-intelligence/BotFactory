@@ -90,7 +90,13 @@ builder.Services.AddCors(options =>
               .AllowCredentials());
 });
 
-// Database
+// Database. The base appsettings.json carries no credentials: Development reads its local connection from
+// appsettings.Development.json, every other environment sets ConnectionStrings__BotFactoryDb.
+if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("BotFactoryDb")))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:BotFactoryDb is not configured. Set the ConnectionStrings__BotFactoryDb environment variable.");
+}
 builder.Services.AddDbContext<BotFactoryDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("BotFactoryDb")));
 
@@ -115,6 +121,27 @@ builder.Services.Configure<FakeIdOptions>(fakeIdSection);
 
 var gobId = gobIdSection.Get<GobIdOptions>() ?? new GobIdOptions();
 var fakeId = fakeIdSection.Get<FakeIdOptions>() ?? new FakeIdOptions();
+
+// Fake-ID creates a session for any seeded user with no password (/auth/dev/token), so it is for
+// development and isolated test installs only. Outside Development it needs an explicit opt-in and a key
+// of its own; nothing in the repository can stand in for it.
+if (useFakeAuth)
+{
+    if (!builder.Environment.IsDevelopment()
+        && !builder.Configuration.GetValue<bool>("Auth:AllowInsecureFakeProvider"))
+    {
+        throw new InvalidOperationException(
+            "Auth:UseFakeProvider is enabled outside Development: Fake-ID signs anyone in without a password. " +
+            "Set AUTH_USE_FAKE=false and fill GOBID_*; for an isolated test install only, also set " +
+            "Auth:AllowInsecureFakeProvider=true (AUTH_ALLOW_INSECURE_FAKE=true in the deployment stack).");
+    }
+    if (fakeId.SigningKey.Length < 32)
+    {
+        throw new InvalidOperationException(
+            "Auth:FakeId:SigningKey must be at least 32 characters when Auth:UseFakeProvider is enabled " +
+            "(generate one with `openssl rand -base64 32`).");
+    }
+}
 
 var startupLogger = LoggerFactory.Create(b => b.AddConsole()).CreateLogger("Startup");
 
