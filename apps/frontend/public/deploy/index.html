@@ -276,7 +276,7 @@ curl -fsSL  https://app.sudominio.com/deploy/bot-factory-deploy.zip -o bot-facto
 </ul>
 
 <h2 id="prod">Inicio de sesión en producción (GOB-ID)</h2>
-<p>La plantilla viene con el inicio de sesión de prueba <b>Fake-ID</b> (<code>AUTH_USE_FAKE=true</code>). Para usar el inicio de sesión real de <b>GOB-ID</b>, cambie <code>AUTH_USE_FAKE=false</code> y complete los valores <code>GOBID_*</code> (comentados en <code>.env.example</code>) con los parámetros de su integración con GOB-ID. Es un cambio solo de configuración — las mismas imágenes.</p>
+<p>La plantilla trae el inicio de sesión de prueba <b>Fake-ID</b> apagado (<code>AUTH_USE_FAKE=false</code>): cualquiera podría entrar sin contraseña. Solo en una instalación de prueba aislada se activa con <code>AUTH_USE_FAKE=true</code> y <code>AUTH_ALLOW_INSECURE_FAKE=true</code>. Para usar el inicio de sesión real de <b>GOB-ID</b>, deje ambas en <code>false</code> y complete los valores <code>GOBID_*</code> (comentados en <code>.env.example</code>) con los parámetros de su integración con GOB-ID. Es un cambio solo de configuración — las mismas imágenes.</p>
 <div class="callout warn"><b>La URL de retorno está fijada en el registro de la aplicación en GOB-ID.</b> Si publica el sistema en un dominio distinto al registrado, el inicio de sesión redirige al dominio anterior y no completa. En ese caso hay que agregar <code>https://&lt;su-dominio&gt;/auth/callback</code> al registro de la aplicación en GOB-ID.</div>
 
 <footer>
