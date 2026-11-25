@@ -85,7 +85,9 @@ PUBLIC_ACCESS_SIGNING_KEY=$(openssl rand -base64 32)
 KB_SCRAPER_API_KEY=$(openssl rand -base64 24)
 ALLOWED_ORIGINS=https://<server3-public-domain>
 PUBLIC_SPA_INDEX_URL=https://<server3-public-domain>/index.html
+# Test install only (anyone can sign in, no password). For real use set both to false and fill GOBID_*.
 AUTH_USE_FAKE=true
+AUTH_ALLOW_INSECURE_FAKE=true
 EOF
 
 mkdir -p certs && cp /path/to/fullchain.pem /path/to/privkey.pem certs/
@@ -133,25 +135,93 @@ curl -s -o /dev/null -w '%{http_code}\n' http://$SERVER:30000/
 ```
 Voice end-to-end is manual: open the app over HTTPS, start a call — LiveKit room opens on Server 2 and the agent joins.
 
+## Updating
+
+New releases are published as images to the registry; the servers update by
+pulling. The update flow lives in `diagnose.sh`:
+
+```bash
+bash diagnose.sh --update             # pull, restart what changed, then run EVERY check
+bash diagnose.sh --update --dry-run   # only report which images would change
+bash diagnose.sh --update --external  # ...and ship the whole run to support
+```
+
+It pulls, recreates only changed containers with `--remove-orphans` (SQL
+overlay included), waits for containers to settle — running, healthy where a
+healthcheck exists, not restart-looping — and then the entire diagnosis runs
+against the post-update state. `up -d` alone exits 0 even when a container
+starts and immediately dies; a crashed container is reported with its last 40
+log lines inline. `update.sh` remains as a shim that forwards to
+`diagnose.sh --update`, so old runbooks keep working.
+
+### Shipping logs to support (`--external`)
+
+`--external` sends the run's
+report plus the last 1500 log lines of every `bf-*` container to Bot Factory
+support when the run finishes, and prints a reference id to quote. Use it when
+support asks for it — it replaces the copy-paste round trip.
+
+```bash
+bash diagnose.sh --external
+bash diagnose.sh --update --external
+```
+
+It is off by default and stays off: container logs can contain user
+conversations, so sending them anywhere is an explicit per-run decision. The
+script announces up front that it will ship, and the upload key is a write-only
+drop box — it can upload a file and nothing else. Without outbound internet the
+run still completes; only the shipping step reports failure.
+
 ## Diagnostics
 
-`diagnose.sh` checks a server end to end — containers, ports, certificates, the SQL
-and LiveKit connections, and recent errors — and prints what works and what does
-not. It detects which server it is on. Run it on both.
+`diagnose.sh` checks a deployment end to end and prints what works and what does
+not. One script, two directions — it picks the mode from its arguments.
 
 Ships in the deploy bundle, not in the frontend image — the operator unpacks it
 deliberately rather than finding an executable of ours already running on their
 server.
 
 ```bash
-bash diagnose.sh                     # check this server
+bash diagnose.sh                     # check this server (containers, .env, SQL, TLS, logs)
 bash diagnose.sh > report.txt        # capture for support
-bash diagnose.sh --egress            # also test outbound internet (off by default)
+bash diagnose.sh --no-egress         # skip the outbound internet tests
 ```
 
+With no arguments it detects which server it is on and checks what that server is
+responsible for. Run it on both.
+
 Exit code 0 when everything passed, 1 when a check failed. It makes no outbound
-connections unless `--egress` is given, and prints secrets only as set/empty plus
-length.
+connections beyond the provider reachability tests (Gemini, ElevenLabs, the image
+registry — a bare TLS connect each; `--no-egress` skips them), and prints secrets
+only as set/empty plus length.
+
+### Checking the public surface from outside
+
+Run **on** a server, the port checks can only answer "is a socket bound here?" —
+a perimeter firewall blocking 7881 still passes them — and TLS is read off disk
+rather than negotiated. Give the same script a public hostname and it asks those
+questions from where a browser stands instead. Run this from a laptop or any host
+that is **not** the servers:
+
+```bash
+bash diagnose.sh --livekit voz.sudominio.com --app app.sudominio.com
+```
+
+It resolves DNS, negotiates TLS against your machine's trust store, confirms
+7881 is reachable and 7880 is not, checks that the ports meant for the compose
+network (30000/30001/30003/31433) are closed from outside, measures clock skew
+from the server's own `Date` header, and verifies that the LiveKit host named in
+the SPA's `env.js` is the one that actually answers. Read-only, sends no
+credentials.
+
+It also says so when the run is not really coming from outside: if the hostname
+resolves to an address this machine holds, or to a private address, the report
+warns rather than passing — a perimeter that does not hairpin lets a server check
+its own public name successfully while the internet cannot reach it at all.
+
+The two directions are complements: inside checks configuration, outside checks
+reality. Run both. Neither can prove media is flowing — for that, place a real
+call and read the selected candidate pair in `chrome://webrtc-internals`.
 
 ## Failure → cause map
 
@@ -186,6 +256,6 @@ address at start and keeps it.
 
 ## Production switches (config-only, same images)
 - **HTTPS on the app (Server 3)**: set `TLS_CERT`/`TLS_KEY` to your own certificate (required for the microphone), or terminate TLS in your own proxy in front of port 30000 — that proxy must forward `X-Forwarded-Proto`.
-- **Auth**: set `AUTH_USE_FAKE=false` and fill `GOBID_*`; register the app's redirect URI with GOB-ID.
+- **Auth**: set `AUTH_USE_FAKE=false` and `AUTH_ALLOW_INSECURE_FAKE=false`, and fill `GOBID_*`; register the app's redirect URI with GOB-ID. With Fake-ID on, the API refuses to start outside Development unless `AUTH_ALLOW_INSECURE_FAKE=true`.
 - **Blob**: replace Azurite by pointing `BlobStorage__ConnectionString` at durable storage; back up.
 - **Rotate** `LIVEKIT_API_SECRET` and SQL credentials from the defaults.
