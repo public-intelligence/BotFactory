@@ -85,7 +85,9 @@ PUBLIC_ACCESS_SIGNING_KEY=$(openssl rand -base64 32)
 KB_SCRAPER_API_KEY=$(openssl rand -base64 24)
 ALLOWED_ORIGINS=https://<server3-public-domain>
 PUBLIC_SPA_INDEX_URL=https://<server3-public-domain>/index.html
+# Test install only (anyone can sign in, no password). For real use set both to false and fill GOBID_*.
 AUTH_USE_FAKE=true
+AUTH_ALLOW_INSECURE_FAKE=true
 EOF
 
 mkdir -p certs && cp /path/to/fullchain.pem /path/to/privkey.pem certs/
@@ -254,6 +256,6 @@ address at start and keeps it.
 
 ## Production switches (config-only, same images)
 - **HTTPS on the app (Server 3)**: set `TLS_CERT`/`TLS_KEY` to your own certificate (required for the microphone), or terminate TLS in your own proxy in front of port 30000 — that proxy must forward `X-Forwarded-Proto`.
-- **Auth**: set `AUTH_USE_FAKE=false` and fill `GOBID_*`; register the app's redirect URI with GOB-ID.
+- **Auth**: set `AUTH_USE_FAKE=false` and `AUTH_ALLOW_INSECURE_FAKE=false`, and fill `GOBID_*`; register the app's redirect URI with GOB-ID. With Fake-ID on, the API refuses to start outside Development unless `AUTH_ALLOW_INSECURE_FAKE=true`.
 - **Blob**: replace Azurite by pointing `BlobStorage__ConnectionString` at durable storage; back up.
 - **Rotate** `LIVEKIT_API_SECRET` and SQL credentials from the defaults.
